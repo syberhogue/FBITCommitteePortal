@@ -1,0 +1,350 @@
+﻿Product Requirement Document (PRD)
+University Committee Management System (UniComm)
+1. Executive Summary & Vision
+1.1 Overview
+The University Committee Management System (UniComm) is a central governance and administrative portal designed to streamline university committee operations. It provides a unified platform for managing personnel, establishing committees, organizing agendas and meeting minutes, tracking high-priority action items, maintaining role expectations, and aggregating essential documentation and resources.
+1.2 Core Objectives
+* Centralized Governance: Eliminate fragmented emails and lost documents by providing a single source of truth for committee schedules, rosters, and minutes.
+* Accountability & Tracking: Ensure clear ownership of tasks through structured action items, goal tracking, and role expectation definitions.
+* Seamless Collaboration: Provide institutional stakeholders (Deans, Chairs, Faculty, Staff, and Administrators) with role-tailored view and edit capabilities.
+* Modern Stack & Deployment: Host a high-performance frontend on Cloudflare Pages/Workers connected to a locally hosted Supabase backend (PostgreSQL, Auth, Storage, Realtime).
+2. User Roles & Access Control (RBAC)
+Authentication is handled via Google OAuth (enforcing university domain access). Authorization is managed through a multi-tiered Role-Based Access Control (RBAC) system defined via Supabase Row Level Security (RLS) policies.
+2.1 Role Definitions
+Role
+	Scope
+	Description & Permissions
+	System Admin
+	Global
+	Full system read/write access. Can manage global roles, templates, user permissions, system configuration, and audit logs.
+	Dean
+	Institutional
+	Can create new committees, edit metadata for any committee, approve/suggest committee rosters, and view all meetings, notes, and agendas across the system.
+	Chair
+	Committee-Level
+	Assigned as Chair to specific committees. Full edit access within assigned committees: create meetings, edit meeting notes/agendas, assign/manage action items, set goals, manage resources, and define role expectations.
+	Staff
+	Committee-Level
+	Assigned as Staff to specific committees. Edit access within assigned committees to update meeting notes, manage action items, and upload/organize resources.
+	Member (Faculty/Admin)
+	Read / Assigned Scope
+	View access to committees they are assigned to, including roster, meetings, goals, and resources. Can view the overall personnel directory and membership across all university committees.
+	2.2 Permissions Matrix
+Feature / Action
+	Admin
+	Dean
+	Chair (Assigned)
+	Staff (Assigned)
+	Member (Assigned)
+	System Settings & Global Templates
+	Full
+	Read
+	Read
+	Read
+	Read
+	User & Role Management (Global)
+	Full
+	Read
+	None
+	None
+	None
+	Create New Committee
+	Yes
+	Yes
+	No
+	No
+	No
+	Edit Committee Name / Mandate
+	Yes
+	Yes
+	Yes
+	No
+	No
+	Add / Remove Committee Members
+	Yes
+	Suggest/Edit
+	Yes
+	No
+	No
+	Create / Delete Meetings
+	Yes
+	Yes
+	Yes
+	Yes
+	No
+	Edit Agendas, Notes & Action Items
+	Yes
+	Yes
+	Yes
+	Yes
+	View Only
+	Manage Committee Goals
+	Yes
+	Yes
+	Yes
+	Yes
+	View Only
+	Organize Link Folders & Resources
+	Yes
+	Yes
+	Yes
+	Yes
+	View Only
+	View Personnel Directory & Rosters
+	Yes
+	Yes
+	Yes
+	Yes
+	Yes
+	3. Functional Specifications
+3.1 Authentication & User Management
+* Google OAuth Integration: Sign-in restriction via Google Workspace API (restricted to @university.edu).
+* Profile Synchronization: Auto-creation of user profiles upon first login, populating email, full name, and standard university category (Faculty, Staff, Admin).
+* Role Assignment: System Admins assign global functional roles (Admin, Dean, Staff, Faculty).
+3.2 Dashboard & Analytics
+* Executive Metrics: Live count of total active personnel, active committees, and pending system-wide action items.
+* Quick Committee Inspector: Split-pane interface allowing instant inspection of any selected committee's pending actions (with assignee & priority) and active completion goals.
+* System Activity Log: Real-time stream recording major operational events (e.g., meeting creation, goal status changes, member additions).
+3.3 Committees Directory & Committee Detail
+* Directory Grid: Searchable card layout showing member counts, meeting tallies, pending action counts, and quick management links.
+* Inline Header Editing: Dynamic inline modification of committee name and detailed mandate text.
+* Tabbed Management Interface:
+   1. Members & Roles: Roster view with dropdown role assignment (Chair, Secretary, Member, Observer, etc.) and instant assignment modals.
+   2. Meetings & Agendas: Meeting timeline with configurable dates, status badges, agenda notes pre-populated from global templates, and action item trackers.
+   3. Goals: Target milestones with target completion dates and completion checkboxes.
+   4. Role Expectations: Operational guidelines and specific duties assigned per role for that specific committee.
+   5. Resource Links & Documents: Grouped resource folders with drag-and-drop / button-based ordering (move up/down), collapsing headers, and nested external document links.
+3.4 Global Search System
+* Universal Search Bar: Fixed header search indexing:
+   * Personnel: Name, email, department, title.
+   * Meetings & Agendas: Meeting titles, agenda text, transcribed minutes.
+   * Action Items: Task descriptions, assigned personnel, priority levels.
+   * Roles: Global system roles.
+* Instant Jump Dropdown: Live grouped search results redirecting users directly to the corresponding view or committee sub-tab.
+3.5 System Settings & Templates
+* Global Role Manager: Interface to add or remove custom roles available for assignment in committee rosters.
+* Default Agenda Template: Rich text / markdown template configuration that auto-fills whenever a new meeting is created in any committee.
+4. System Architecture & Tech Stack
+   ┌─────────────────────────────────────────────────────────┐
+  │             Cloudflare Edge Network                     │
+  │                                                         │
+  │  ┌───────────────────────┐   ┌───────────────────────┐  │
+  │  │   Cloudflare Pages    │   │   Cloudflare Worker   │  │
+  │  │  (Frontend React App) │   │  (SSR / Middleware)   │  │
+  │  └───────────┬───────────┘   └───────────┬───────────┘  │
+  └──────────────┼───────────────────────────┼──────────────┘
+                 │ HTTPS / WebSockets        │
+                 ▼                           ▼
+  ┌─────────────────────────────────────────────────────────┐
+  │             Local / Self-Hosted Supabase                │
+  │                                                         │
+  │  ┌──────────────┐ ┌──────────────┐ ┌─────────────────┐  │
+  │  │ Supabase Auth│ │ PostgreSQL DB│ │ Supabase Storage│  │
+  │  │ (Google OAuth│ │  + RLS Rules │ │ (Files & Docs)  │  │
+  │  └──────────────┘ └──────────────┘ └─────────────────┘  │
+  └─────────────────────────────────────────────────────────┘
+
+4.1 Tech Stack Components
+* Frontend: React 18 / Vite with Tailwind CSS and Lucide/FontAwesome icons deployed to Cloudflare Pages.
+* Edge Middleware: Cloudflare Workers for security header enforcement, route guarding, and token verification.
+* Backend Platform: Local Supabase Instance (managed via Docker Compose / Supabase CLI).
+   * Database: PostgreSQL 15+ with Row Level Security (RLS).
+   * Authentication: Supabase Auth (Google Provider).
+   * Realtime: Supabase Realtime for instant activity log and live action updates.
+5. Database Schema Design (PostgreSQL / Supabase)
+-- 1. Profiles / Personnel Table
+CREATE TABLE public.profiles (
+   id UUID REFERENCES auth.users ON DELETE CASCADE PRIMARY KEY,
+   email TEXT UNIQUE NOT NULL,
+   full_name TEXT NOT NULL,
+   user_type TEXT CHECK (user_type IN ('Faculty', 'Staff', 'Admin')) NOT NULL DEFAULT 'Faculty',
+   global_role TEXT CHECK (global_role IN ('Admin', 'Dean', 'Staff', 'Faculty')) NOT NULL DEFAULT 'Faculty',
+   department TEXT,
+   created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 2. Committee Roles Lookup
+CREATE TABLE public.roles (
+   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+   name TEXT NOT NULL UNIQUE,
+   is_default BOOLEAN DEFAULT false,
+   created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 3. Committees Table
+CREATE TABLE public.committees (
+   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+   name TEXT NOT NULL,
+   description TEXT,
+   created_by UUID REFERENCES public.profiles(id),
+   created_at TIMESTAMPTZ DEFAULT NOW(),
+   updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 4. Committee Membership (Junction)
+CREATE TABLE public.committee_members (
+   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+   committee_id UUID REFERENCES public.committees(id) ON DELETE CASCADE,
+   profile_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE,
+   role_id UUID REFERENCES public.roles(id),
+   joined_at TIMESTAMPTZ DEFAULT NOW(),
+   UNIQUE(committee_id, profile_id)
+);
+
+-- 5. Role Expectations per Committee
+CREATE TABLE public.role_expectations (
+   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+   committee_id UUID REFERENCES public.committees(id) ON DELETE CASCADE,
+   role_id UUID REFERENCES public.roles(id) ON DELETE CASCADE,
+   expectation_text TEXT NOT NULL,
+   UNIQUE(committee_id, role_id)
+);
+
+-- 6. Meetings Table
+CREATE TABLE public.meetings (
+   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+   committee_id UUID REFERENCES public.committees(id) ON DELETE CASCADE,
+   title TEXT NOT NULL,
+   meeting_date DATE NOT NULL,
+   status TEXT CHECK (status IN ('Scheduled', 'In Progress', 'Completed', 'Cancelled')) DEFAULT 'Scheduled',
+   agenda_notes TEXT,
+   created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 7. Action Items Table
+CREATE TABLE public.action_items (
+   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+   meeting_id UUID REFERENCES public.meetings(id) ON DELETE CASCADE,
+   task TEXT NOT NULL,
+   assignee_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+   priority TEXT CHECK (priority IN ('Low', 'Medium', 'High')) DEFAULT 'Medium',
+   completed BOOLEAN DEFAULT false,
+   created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 8. Goals Table
+CREATE TABLE public.goals (
+   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+   committee_id UUID REFERENCES public.committees(id) ON DELETE CASCADE,
+   title TEXT NOT NULL,
+   target_date DATE,
+   completed BOOLEAN DEFAULT false,
+   created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 9. Resource Groups (Folders)
+CREATE TABLE public.resource_groups (
+   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+   committee_id UUID REFERENCES public.committees(id) ON DELETE CASCADE,
+   name TEXT NOT NULL,
+   sort_order INT DEFAULT 0,
+   collapsed BOOLEAN DEFAULT false
+);
+
+-- 10. Resource Links
+CREATE TABLE public.resource_links (
+   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+   group_id UUID REFERENCES public.resource_groups(id) ON DELETE CASCADE,
+   title TEXT NOT NULL,
+   url TEXT NOT NULL,
+   description TEXT,
+   sort_order INT DEFAULT 0
+);
+
+-- 11. Global System Settings
+CREATE TABLE public.system_settings (
+   key TEXT PRIMARY KEY,
+   value JSONB NOT NULL,
+   updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 12. Activity Log
+CREATE TABLE public.activity_log (
+   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+   actor_id UUID REFERENCES public.profiles(id),
+   activity_text TEXT NOT NULL,
+   created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+6. Security & Row-Level Security (RLS) Policies
+Below is an example of the security policies governing committee data access:
+-- Enable RLS on core tables
+ALTER TABLE public.committees ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.meetings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.action_items ENABLE ROW LEVEL SECURITY;
+
+-- Helper function: Check if current user is Admin or Dean
+CREATE OR REPLACE FUNCTION public.is_admin_or_dean()
+RETURNS BOOLEAN AS $$
+ SELECT EXISTS (
+   SELECT 1 FROM public.profiles 
+   WHERE id = auth.uid() AND global_role IN ('Admin', 'Dean')
+ );
+$$ LANGUAGE sql SECURITY DEFINER;
+
+-- Helper function: Check if user is Chair of specific committee
+CREATE OR REPLACE FUNCTION public.is_committee_chair(c_id UUID)
+RETURNS BOOLEAN AS $$
+ SELECT EXISTS (
+   SELECT 1 FROM public.committee_members cm
+   JOIN public.roles r ON cm.role_id = r.id
+   WHERE cm.committee_id = c_id 
+     AND cm.profile_id = auth.uid() 
+     AND r.name = 'Chair'
+ );
+$$ LANGUAGE sql SECURITY DEFINER;
+
+-- RLS: Committees Read Policy (All authenticated users can view all committees)
+CREATE POLICY "Allow authenticated read access to committees"
+ON public.committees FOR SELECT
+TO authenticated
+USING (true);
+
+-- RLS: Committees Insert/Update (Admin, Dean, or Assigned Chair)
+CREATE POLICY "Allow update for Admin, Dean, or Assigned Chair"
+ON public.committees FOR UPDATE
+TO authenticated
+USING (
+ public.is_admin_or_dean() OR public.is_committee_chair(id)
+);
+
+7. Implementation Plan
+Phase 1: Local Supabase Backend Infrastructure
+1. Initialize Local Supabase Environment:
+   * Install Supabase CLI: brew install supabase/tap/supabase
+   * Run supabase init and configure local Docker containers (supabase start).
+2. Execute Database Migrations:
+   * Run the SQL DDL script to create tables, indexes, triggers, and foreign keys.
+   * Apply RLS policies for role checking (is_admin_or_dean(), is_committee_chair()).
+3. Configure Google OAuth:
+   * Create Google Cloud Console OAuth 2.0 Credentials.
+   * Add OAuth Client ID and Secret to local supabase/config.toml.
+   * Configure Auth Callback URLs (http://localhost:54321/auth/v1/callback and local frontend URL).
+Phase 2: Frontend Refactoring (React + Vite)
+1. Project Scaffold:
+   * Initialize Vite React project: npm create vite@latest unicomm-frontend -- --template react-ts.
+   * Install Tailwind CSS and @supabase/supabase-js.
+2. State & API Integration:
+   * Create Supabase Client singleton (src/lib/supabaseClient.ts).
+   * Implement Auth Context Provider managing user sessions and Google login state.
+   * Migrate Alpine.js local state handlers to Supabase query hooks (useCommittees, usePersonnel, useMeetings).
+Phase 3: Core Feature Implementation
+1. Role-Based Guards & Routing:
+   * Protect route actions based on global role (Admin, Dean) or assigned committee role (Chair, Staff, Member).
+2. Real-time Subscriptions:
+   * Attach Supabase Realtime listeners to activity_log and action_items tables to update the Dashboard instantly across browser sessions.
+3. Global Search Engine:
+   * Implement PostgreSQL Full-Text Search (FTS) index or RPC stored procedure (search_all_entities(query_text)) for lightning-fast multi-table search.
+Phase 4: Cloudflare Pages & Worker Deployment
+1. Cloudflare Pages Configuration:
+   * Connect Git Repository to Cloudflare Pages.
+   * Set Build Command: npm run build, Output Directory: dist.
+   * Set Environment Variables (VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY).
+2. Cloudflare Worker Setup (Optional / Advanced Edge Routing):
+   * Configure a Cloudflare Worker for custom CORS enforcement, domain proxying, or server-side rendering (SSR) if required.
+3. Local Supabase Tunneling / Production Host:
+   * Use cloudflared tunnel (cloudflared tunnel run) or host local Supabase on an internal server with SSL termination to allow secure connections from Cloudflare Pages.
+Phase 5: Testing, Validation & Launch
+1. Security Audit: Verify RLS policies by logging in as different user roles (Admin, Dean, Chair, Staff, Member) and verifying write/delete boundaries.
+2. UAT (User Acceptance Testing): Test meeting creation, drag-and-drop link ordering, goal toggling, and global search performance.
+3. Go-Live: Switch Google Auth domain restrictions to production enforce status and roll out to university stakeholders.

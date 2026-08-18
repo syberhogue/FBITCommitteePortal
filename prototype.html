@@ -1,0 +1,2419 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>University Committee Management</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <link
+      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css"
+      rel="stylesheet"
+    />
+    <style>
+      [x-cloak] {
+        display: none !important;
+      }
+      .fade-enter-active,
+      .fade-leave-active {
+        transition: opacity 0.3s ease;
+      }
+      .fade-enter-from,
+      .fade-leave-to {
+        opacity: 0;
+      }
+    </style>
+  </head>
+  <body class="bg-slate-50 text-slate-800 font-sans antialiased" x-data="committeeApp()">
+    <!-- Navigation -->
+    <nav class="bg-indigo-700 text-white shadow-lg sticky top-0 z-50">
+      <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div class="flex justify-between items-center h-16">
+          <div
+            class="flex items-center space-x-3 cursor-pointer"
+            @click="currentView = 'dashboard'"
+          >
+            <i class="fas fa-university text-2xl"></i>
+            <span class="font-bold text-xl tracking-tight hidden sm:inline">UniComm Manager</span>
+          </div>
+
+          <!-- Global Search Input in Navigation -->
+          <div class="relative flex-1 max-w-xs md:max-w-md mx-4">
+            <div class="relative">
+              <span
+                class="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none text-indigo-200"
+              >
+                <i class="fas fa-search"></i>
+              </span>
+              <input
+                type="text"
+                x-model="globalSearchQuery"
+                @focus="showSearchDropdown = true"
+                @click.away="showSearchDropdown = false"
+                placeholder="Search meetings, agendas, actions, names, roles..."
+                class="w-full pl-9 pr-8 py-1.5 bg-indigo-800/80 text-white placeholder-indigo-300 rounded-lg text-sm focus:outline-none focus:bg-indigo-900 focus:ring-2 focus:ring-indigo-300 transition"
+              />
+              <button
+                x-show="globalSearchQuery"
+                @click="globalSearchQuery = ''"
+                class="absolute inset-y-0 right-0 flex items-center pr-2.5 text-indigo-300 hover:text-white"
+              >
+                <i class="fas fa-times text-xs"></i>
+              </button>
+            </div>
+
+            <!-- Global Search Results Dropdown -->
+            <div
+              x-show="showSearchDropdown && globalSearchQuery.trim() !== ''"
+              x-cloak
+              class="absolute left-0 right-0 mt-2 bg-white text-slate-800 rounded-xl shadow-2xl border border-slate-200 max-h-96 overflow-y-auto z-50 p-2 space-y-3"
+            >
+              <!-- Search: Personnel Matches -->
+              <template x-if="searchResults.personnel.length > 0">
+                <div>
+                  <div
+                    class="px-3 py-1 text-xs font-semibold text-slate-400 uppercase tracking-wider"
+                  >
+                    Personnel
+                  </div>
+                  <template x-for="p in searchResults.personnel" :key="p.id">
+                    <div
+                      @click="currentView = 'personnel'; showSearchDropdown = false"
+                      class="px-3 py-2 hover:bg-indigo-50 rounded-lg cursor-pointer transition flex justify-between items-center text-sm"
+                    >
+                      <div>
+                        <span class="font-medium text-indigo-900" x-text="p.name"></span>
+                        <span class="text-xs text-slate-500 ml-2" x-text="p.details"></span>
+                      </div>
+                      <span
+                        class="text-xs px-2 py-0.5 bg-slate-100 rounded text-slate-600"
+                        x-text="p.type"
+                      ></span>
+                    </div>
+                  </template>
+                </div>
+              </template>
+
+              <!-- Search: Meeting/Agenda Matches -->
+              <template x-if="searchResults.meetings.length > 0">
+                <div>
+                  <div
+                    class="px-3 py-1 text-xs font-semibold text-slate-400 uppercase tracking-wider"
+                  >
+                    Meetings & Agendas
+                  </div>
+                  <template x-for="m in searchResults.meetings" :key="m.id">
+                    <div
+                      @click="viewCommittee(m.committeeId); detailTab = 'meetings'; showSearchDropdown = false"
+                      class="px-3 py-2 hover:bg-indigo-50 rounded-lg cursor-pointer transition text-sm"
+                    >
+                      <div class="font-medium text-indigo-900 flex justify-between">
+                        <span x-text="m.title"></span>
+                        <span class="text-xs text-slate-500" x-text="m.committeeName"></span>
+                      </div>
+                      <p class="text-xs text-slate-500 truncate mt-0.5" x-text="m.agendaNotes"></p>
+                    </div>
+                  </template>
+                </div>
+              </template>
+
+              <!-- Search: Action Item Matches -->
+              <template x-if="searchResults.actions.length > 0">
+                <div>
+                  <div
+                    class="px-3 py-1 text-xs font-semibold text-slate-400 uppercase tracking-wider"
+                  >
+                    Action Items
+                  </div>
+                  <template x-for="a in searchResults.actions" :key="a.id">
+                    <div
+                      @click="viewCommittee(a.committeeId); detailTab = 'meetings'; showSearchDropdown = false"
+                      class="px-3 py-2 hover:bg-indigo-50 rounded-lg cursor-pointer transition text-sm flex justify-between items-center"
+                    >
+                      <div>
+                        <i class="far fa-check-circle mr-1 text-slate-400"></i>
+                        <span class="text-slate-800" x-text="a.task"></span>
+                        <span
+                          class="text-xs text-indigo-600 block"
+                          x-text="'In ' + a.committeeName"
+                        ></span>
+                      </div>
+                      <span
+                        class="text-xs font-semibold px-2 py-0.5 rounded"
+                        :class="{'bg-red-100 text-red-700': a.priority==='High', 'bg-yellow-100 text-yellow-700': a.priority==='Medium', 'bg-green-100 text-green-700': a.priority==='Low'}"
+                        x-text="a.priority"
+                      ></span>
+                    </div>
+                  </template>
+                </div>
+              </template>
+
+              <!-- Search: Roles Matches -->
+              <template x-if="searchResults.roles.length > 0">
+                <div>
+                  <div
+                    class="px-3 py-1 text-xs font-semibold text-slate-400 uppercase tracking-wider"
+                  >
+                    Roles
+                  </div>
+                  <template x-for="r in searchResults.roles" :key="r.id">
+                    <div
+                      @click="currentView = 'settings'; showSearchDropdown = false"
+                      class="px-3 py-2 hover:bg-indigo-50 rounded-lg cursor-pointer transition text-sm flex justify-between"
+                    >
+                      <span class="font-medium text-slate-800" x-text="r.name"></span>
+                      <span class="text-xs text-slate-500">Global Role</span>
+                    </div>
+                  </template>
+                </div>
+              </template>
+
+              <!-- Empty Search State -->
+              <div
+                x-show="searchResults.personnel.length === 0 && searchResults.meetings.length === 0 && searchResults.actions.length === 0 && searchResults.roles.length === 0"
+                class="p-4 text-center text-sm text-slate-500"
+              >
+                No matching items found for "<span x-text="globalSearchQuery"></span>".
+              </div>
+            </div>
+          </div>
+
+          <div class="flex items-center space-x-1 sm:space-x-3">
+            <button
+              @click="currentView = 'dashboard'"
+              :class="{'bg-indigo-800': currentView === 'dashboard'}"
+              class="px-3 py-2 rounded-md text-sm font-medium hover:bg-indigo-600 transition"
+            >
+              Dashboard
+            </button>
+            <button
+              @click="currentView = 'committees'"
+              :class="{'bg-indigo-800': currentView === 'committees'}"
+              class="px-3 py-2 rounded-md text-sm font-medium hover:bg-indigo-600 transition"
+            >
+              Committees
+            </button>
+            <button
+              @click="currentView = 'personnel'"
+              :class="{'bg-indigo-800': currentView === 'personnel'}"
+              class="px-3 py-2 rounded-md text-sm font-medium hover:bg-indigo-600 transition"
+            >
+              Personnel
+            </button>
+            <button
+              @click="currentView = 'settings'"
+              :class="{'bg-indigo-800': currentView === 'settings'}"
+              class="px-3 py-2 rounded-md text-sm font-medium hover:bg-indigo-600 transition"
+            >
+              Settings
+            </button>
+          </div>
+        </div>
+      </div>
+    </nav>
+
+    <!-- Main Content Area -->
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <!-- View: Dashboard -->
+      <div x-show="currentView === 'dashboard'" x-cloak class="space-y-6 fade-enter-active">
+        <header class="mb-6">
+          <h1 class="text-3xl font-bold text-slate-900">Dashboard</h1>
+          <p class="text-slate-500 mt-1">
+            Overview of university committee activities, progress tracking, and key actions.
+          </p>
+        </header>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <!-- Stats Cards -->
+          <div
+            class="bg-white rounded-xl shadow-sm border border-slate-100 p-6 flex items-center space-x-4"
+          >
+            <div class="p-3 bg-blue-100 text-blue-600 rounded-lg">
+              <i class="fas fa-users fa-2x"></i>
+            </div>
+            <div>
+              <p class="text-sm font-medium text-slate-500">Total Personnel</p>
+              <p class="text-2xl font-bold text-slate-900" x-text="personnel.length"></p>
+            </div>
+          </div>
+          <div
+            class="bg-white rounded-xl shadow-sm border border-slate-100 p-6 flex items-center space-x-4"
+          >
+            <div class="p-3 bg-indigo-100 text-indigo-600 rounded-lg">
+              <i class="fas fa-layer-group fa-2x"></i>
+            </div>
+            <div>
+              <p class="text-sm font-medium text-slate-500">Active Committees</p>
+              <p class="text-2xl font-bold text-slate-900" x-text="committees.length"></p>
+            </div>
+          </div>
+          <div
+            class="bg-white rounded-xl shadow-sm border border-slate-100 p-6 flex items-center space-x-4"
+          >
+            <div class="p-3 bg-emerald-100 text-emerald-600 rounded-lg">
+              <i class="fas fa-tasks fa-2x"></i>
+            </div>
+            <div>
+              <p class="text-sm font-medium text-slate-500">Pending Actions</p>
+              <p class="text-2xl font-bold text-slate-900" x-text="getTotalPendingActions()"></p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Committee Inspector & Activity Log Grid -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-8">
+          <!-- Quick Committee Inspector (2 Columns) -->
+          <div
+            class="lg:col-span-2 bg-white rounded-xl shadow-sm border border-slate-100 p-6 flex flex-col"
+          >
+            <div
+              class="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-100 gap-2"
+            >
+              <div>
+                <h3 class="text-lg font-bold text-slate-800">Committee Inspector</h3>
+                <p class="text-xs text-slate-500">
+                  Select a committee to inspect pending actions and goals.
+                </p>
+              </div>
+              <select
+                x-model="selectedDashboardCommitteeId"
+                class="text-sm font-semibold border-slate-300 rounded-lg p-2 bg-slate-50 text-indigo-700 focus:ring-indigo-500 border"
+              >
+                <template x-for="c in committees" :key="c.id">
+                  <option :value="c.id" x-text="c.name"></option>
+                </template>
+              </select>
+            </div>
+
+            <template x-if="inspectedCommittee">
+              <div class="mt-4 space-y-6">
+                <!-- Quick Stats for Committee -->
+                <div
+                  class="flex justify-between items-center bg-indigo-50/50 p-3 rounded-lg border border-indigo-100"
+                >
+                  <div>
+                    <p
+                      class="text-sm font-bold text-indigo-900"
+                      x-text="inspectedCommittee.name"
+                    ></p>
+                    <p
+                      class="text-xs text-slate-600 line-clamp-1"
+                      x-text="inspectedCommittee.description"
+                    ></p>
+                  </div>
+                  <button
+                    @click="viewCommittee(inspectedCommittee.id)"
+                    class="text-xs bg-indigo-600 hover:bg-indigo-700 text-white font-medium px-3 py-1.5 rounded-md transition shadow-sm whitespace-nowrap"
+                  >
+                    Open View <i class="fas fa-arrow-right ml-1"></i>
+                  </button>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <!-- Pending Action Items -->
+                  <div class="border border-slate-100 rounded-xl p-4 bg-slate-50/50">
+                    <h4
+                      class="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3 flex justify-between items-center"
+                    >
+                      <span>Pending Actions</span>
+                      <span
+                        class="bg-indigo-100 text-indigo-700 text-xs px-2 py-0.5 rounded-full"
+                        x-text="getCommitteePendingActions(inspectedCommittee).length"
+                      ></span>
+                    </h4>
+                    <ul class="space-y-2 max-h-56 overflow-y-auto pr-1">
+                      <template
+                        x-for="act in getCommitteePendingActions(inspectedCommittee)"
+                        :key="act.id"
+                      >
+                        <li
+                          class="text-xs bg-white p-2.5 rounded-lg border border-slate-200 shadow-2xs flex justify-between items-start gap-2"
+                        >
+                          <div>
+                            <p class="font-medium text-slate-800" x-text="act.task"></p>
+                            <p class="text-slate-400 text-[10px] mt-0.5">
+                              Assigned:
+                              <span
+                                class="text-slate-600"
+                                x-text="getPersonName(act.assigneeId) || 'Unassigned'"
+                              ></span>
+                            </p>
+                          </div>
+                          <span
+                            class="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase"
+                            :class="{'bg-red-100 text-red-700': act.priority==='High', 'bg-yellow-100 text-yellow-700': act.priority==='Medium', 'bg-green-100 text-green-700': act.priority==='Low'}"
+                            x-text="act.priority"
+                          ></span>
+                        </li>
+                      </template>
+                      <li
+                        x-show="getCommitteePendingActions(inspectedCommittee).length === 0"
+                        class="text-xs text-slate-400 italic py-4 text-center"
+                      >
+                        No active pending actions.
+                      </li>
+                    </ul>
+                  </div>
+
+                  <!-- Goals Status -->
+                  <div class="border border-slate-100 rounded-xl p-4 bg-slate-50/50">
+                    <h4
+                      class="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3 flex justify-between items-center"
+                    >
+                      <span>Active Goals</span>
+                      <span
+                        class="bg-emerald-100 text-emerald-700 text-xs px-2 py-0.5 rounded-full"
+                        x-text="inspectedCommittee.goals.filter(g => !g.completed).length"
+                      ></span>
+                    </h4>
+                    <ul class="space-y-2 max-h-56 overflow-y-auto pr-1">
+                      <template x-for="goal in inspectedCommittee.goals" :key="goal.id">
+                        <li
+                          class="text-xs bg-white p-2.5 rounded-lg border border-slate-200 shadow-2xs flex items-center justify-between gap-2"
+                        >
+                          <div class="flex items-center gap-2">
+                            <i
+                              class="fas"
+                              :class="goal.completed ? 'fa-check-circle text-emerald-500' : 'fa-circle text-slate-300'"
+                            ></i>
+                            <span
+                              class="font-medium"
+                              :class="goal.completed ? 'line-through text-slate-400' : 'text-slate-800'"
+                              x-text="goal.title"
+                            ></span>
+                          </div>
+                          <span
+                            x-show="goal.targetDate"
+                            class="text-[10px] text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded whitespace-nowrap"
+                            x-text="goal.targetDate"
+                          ></span>
+                        </li>
+                      </template>
+                      <li
+                        x-show="inspectedCommittee.goals.length === 0"
+                        class="text-xs text-slate-400 italic py-4 text-center"
+                      >
+                        No goals set for this committee.
+                      </li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+            </template>
+          </div>
+
+          <!-- Activity Feed -->
+          <div class="bg-white rounded-xl shadow-sm border border-slate-100 p-6 flex flex-col">
+            <h3
+              class="text-lg font-bold text-slate-800 mb-4 border-b border-slate-100 pb-3 flex items-center justify-between"
+            >
+              <span>Recent Activity</span>
+              <i class="fas fa-history text-slate-400 text-sm"></i>
+            </h3>
+            <div class="flex-1 overflow-y-auto max-h-80 space-y-4 pr-1">
+              <template x-for="act in activityLog" :key="act.id">
+                <div class="flex items-start space-x-3 text-xs">
+                  <div class="p-2 bg-indigo-50 text-indigo-600 rounded-full flex-shrink-0 mt-0.5">
+                    <i class="fas fa-bolt text-xs"></i>
+                  </div>
+                  <div class="flex-1">
+                    <p class="text-slate-800 font-medium" x-text="act.text"></p>
+                    <p class="text-slate-400 text-[10px] mt-0.5" x-text="act.timestamp"></p>
+                  </div>
+                </div>
+              </template>
+              <div
+                x-show="activityLog.length === 0"
+                class="text-center text-xs text-slate-400 py-8"
+              >
+                No recent activity logged yet.
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Quick Jump Table -->
+        <div class="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden mt-8">
+          <div
+            class="px-6 py-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center"
+          >
+            <h3 class="text-lg font-semibold text-slate-800">All Established Committees</h3>
+            <span class="text-xs text-slate-500" x-text="committees.length + ' Total'"></span>
+          </div>
+          <ul class="divide-y divide-slate-100">
+            <template x-for="committee in committees" :key="committee.id">
+              <li
+                class="px-6 py-4 hover:bg-slate-50 flex justify-between items-center transition cursor-pointer"
+                @click="viewCommittee(committee.id)"
+              >
+                <div>
+                  <p
+                    class="text-sm font-semibold text-indigo-600 truncate"
+                    x-text="committee.name"
+                  ></p>
+                  <p class="text-sm text-slate-500 truncate" x-text="committee.description"></p>
+                </div>
+                <div class="flex items-center space-x-4 text-xs text-slate-400">
+                  <span
+                    ><i class="fas fa-user-friends mr-1"></i>
+                    <span x-text="committee.members.length"></span
+                  ></span>
+                  <span
+                    ><i class="fas fa-calendar mr-1"></i>
+                    <span x-text="committee.meetings.length"></span
+                  ></span>
+                  <i class="fas fa-chevron-right text-slate-400 ml-2"></i>
+                </div>
+              </li>
+            </template>
+          </ul>
+        </div>
+      </div>
+
+      <!-- View: Personnel Directory -->
+      <div x-show="currentView === 'personnel'" x-cloak class="space-y-6 fade-enter-active">
+        <header class="flex justify-between items-center mb-8">
+          <div>
+            <h1 class="text-3xl font-bold text-slate-900">Personnel Directory</h1>
+            <p class="text-slate-500 mt-1">Manage faculty, staff, and administrators.</p>
+          </div>
+          <button
+            @click="showAddPersonModal = true"
+            class="bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 transition shadow-sm flex items-center"
+          >
+            <i class="fas fa-user-plus mr-2"></i> Add Person
+          </button>
+        </header>
+
+        <!-- Filters -->
+        <div class="flex space-x-2 mb-6">
+          <template x-for="type in ['All', 'Faculty', 'Staff', 'Admin']">
+            <button
+              @click="personnelFilter = type"
+              :class="personnelFilter === type ? 'bg-slate-800 text-white' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'"
+              class="px-4 py-1.5 rounded-full text-sm font-medium transition"
+              x-text="type"
+            ></button>
+          </template>
+        </div>
+
+        <!-- Personnel List -->
+        <div class="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden">
+          <table class="min-w-full divide-y divide-slate-200">
+            <thead class="bg-slate-50">
+              <tr>
+                <th
+                  scope="col"
+                  class="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider"
+                >
+                  Name
+                </th>
+                <th
+                  scope="col"
+                  class="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider"
+                >
+                  Type
+                </th>
+                <th
+                  scope="col"
+                  class="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider"
+                >
+                  Department/Title
+                </th>
+                <th
+                  scope="col"
+                  class="px-6 py-3 text-right text-xs font-medium text-slate-500 uppercase tracking-wider"
+                >
+                  Actions
+                </th>
+              </tr>
+            </thead>
+            <tbody class="bg-white divide-y divide-slate-200">
+              <template x-for="person in filteredPersonnel" :key="person.id">
+                <tr class="hover:bg-slate-50">
+                  <td class="px-6 py-4 whitespace-nowrap">
+                    <div class="flex items-center">
+                      <div
+                        class="flex-shrink-0 h-10 w-10 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-bold"
+                      >
+                        <span x-text="person.name.charAt(0)"></span>
+                      </div>
+                      <div class="ml-4">
+                        <div class="text-sm font-medium text-slate-900" x-text="person.name"></div>
+                        <div class="text-sm text-slate-500" x-text="person.email"></div>
+                      </div>
+                    </div>
+                  </td>
+                  <td class="px-6 py-4 whitespace-nowrap">
+                    <span
+                      class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full"
+                      :class="{
+                                            'bg-purple-100 text-purple-800': person.type === 'Faculty',
+                                            'bg-green-100 text-green-800': person.type === 'Staff',
+                                            'bg-red-100 text-red-800': person.type === 'Admin'
+                                          }"
+                      x-text="person.type"
+                    >
+                    </span>
+                  </td>
+                  <td
+                    class="px-6 py-4 whitespace-nowrap text-sm text-slate-500"
+                    x-text="person.details"
+                  ></td>
+                  <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                    <button
+                      @click="deletePerson(person.id)"
+                      class="text-red-600 hover:text-red-900"
+                      title="Remove"
+                    >
+                      <i class="fas fa-trash"></i>
+                    </button>
+                  </td>
+                </tr>
+              </template>
+              <tr x-show="filteredPersonnel.length === 0">
+                <td colspan="4" class="px-6 py-8 text-center text-slate-500">
+                  No personnel found.
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- View: Committees List / Directory -->
+      <div x-show="currentView === 'committees'" x-cloak class="space-y-6 fade-enter-active">
+        <header class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+          <div>
+            <h1 class="text-3xl font-bold text-slate-900">Committees Directory</h1>
+            <p class="text-slate-500 mt-1">
+              Browse, search, and manage all university standing and ad-hoc committees.
+            </p>
+          </div>
+          <button
+            @click="showAddCommitteeModal = true"
+            class="bg-indigo-600 hover:bg-indigo-700 text-white font-medium px-4 py-2.5 rounded-lg shadow-sm transition flex items-center justify-center self-start sm:self-auto"
+          >
+            <i class="fas fa-plus mr-2"></i> Create Committee
+          </button>
+        </header>
+
+        <!-- Committee Search Bar -->
+        <div class="relative max-w-md">
+          <span
+            class="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none text-slate-400"
+          >
+            <i class="fas fa-search"></i>
+          </span>
+          <input
+            type="text"
+            x-model="committeeSearchQuery"
+            placeholder="Filter committees by title or mandate..."
+            class="w-full pl-9 pr-4 py-2 bg-white text-slate-800 rounded-lg text-sm border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 shadow-2xs"
+          />
+        </div>
+
+        <!-- Committees Grid -->
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <template x-for="committee in filteredCommittees" :key="committee.id">
+            <div
+              class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 flex flex-col justify-between hover:shadow-md transition"
+            >
+              <div>
+                <div class="flex items-start justify-between">
+                  <div class="p-3 bg-indigo-50 text-indigo-600 rounded-lg mb-3">
+                    <i class="fas fa-users-cog fa-lg"></i>
+                  </div>
+                  <button
+                    @click="deleteCommittee(committee.id)"
+                    class="text-slate-400 hover:text-red-600 p-1"
+                    title="Delete Committee"
+                  >
+                    <i class="fas fa-trash text-sm"></i>
+                  </button>
+                </div>
+                <h3
+                  class="text-lg font-bold text-slate-900 cursor-pointer hover:text-indigo-600"
+                  @click="viewCommittee(committee.id)"
+                  x-text="committee.name"
+                ></h3>
+                <p
+                  class="text-xs text-slate-500 mt-2 line-clamp-3 leading-relaxed"
+                  x-text="committee.description || 'No description provided.'"
+                ></p>
+              </div>
+
+              <div class="mt-6 pt-4 border-t border-slate-100 space-y-3">
+                <!-- Metrics Badges -->
+                <div class="grid grid-cols-3 gap-2 text-center text-xs">
+                  <div class="bg-slate-50 p-2 rounded-lg">
+                    <span
+                      class="font-bold text-slate-800 block text-sm"
+                      x-text="committee.members ? committee.members.length : 0"
+                    ></span>
+                    <span class="text-slate-400 text-[10px]">Members</span>
+                  </div>
+                  <div class="bg-slate-50 p-2 rounded-lg">
+                    <span
+                      class="font-bold text-slate-800 block text-sm"
+                      x-text="committee.meetings ? committee.meetings.length : 0"
+                    ></span>
+                    <span class="text-slate-400 text-[10px]">Meetings</span>
+                  </div>
+                  <div class="bg-slate-50 p-2 rounded-lg">
+                    <span
+                      class="font-bold text-slate-800 block text-sm"
+                      x-text="getCommitteePendingActions(committee).length"
+                    ></span>
+                    <span class="text-slate-400 text-[10px]">Actions</span>
+                  </div>
+                </div>
+
+                <button
+                  @click="viewCommittee(committee.id)"
+                  class="w-full bg-slate-100 hover:bg-indigo-600 text-slate-700 hover:text-white font-medium py-2 rounded-lg transition text-xs flex items-center justify-center space-x-2"
+                >
+                  <span>Manage Committee</span>
+                  <i class="fas fa-arrow-right text-[10px]"></i>
+                </button>
+              </div>
+            </div>
+          </template>
+        </div>
+
+        <!-- Empty State -->
+        <div
+          x-show="filteredCommittees.length === 0"
+          class="bg-white rounded-xl border border-dashed border-slate-300 p-12 text-center"
+        >
+          <i class="fas fa-layer-group fa-3x text-slate-300 mb-3"></i>
+          <h3 class="text-base font-semibold text-slate-700">No Committees Found</h3>
+          <p class="text-xs text-slate-400 mt-1">
+            Try adjusting your search filter or create a new committee.
+          </p>
+          <button
+            @click="showAddCommitteeModal = true"
+            class="mt-4 bg-indigo-600 text-white text-xs px-4 py-2 rounded-md font-medium hover:bg-indigo-700 transition"
+          >
+            + Create Committee
+          </button>
+        </div>
+      </div>
+
+      <!-- View: Settings (Roles & Global Agenda Template) -->
+      <div x-show="currentView === 'settings'" x-cloak class="space-y-6 fade-enter-active">
+        <header class="mb-8">
+          <h1 class="text-3xl font-bold text-slate-900">System Settings</h1>
+          <p class="text-slate-500 mt-1">
+            Manage system-wide defaults like Committee Roles and Default Agenda Templates.
+          </p>
+        </header>
+
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+          <!-- Roles Management -->
+          <div class="bg-white rounded-xl shadow-sm border border-slate-100 p-6">
+            <h3 class="text-lg font-semibold text-slate-800 mb-2 border-b pb-2">
+              Defined Committee Roles
+            </h3>
+            <p class="text-xs text-slate-500 mb-4">
+              Roles available for assignment across all university committees.
+            </p>
+
+            <ul class="space-y-3 mb-6">
+              <template x-for="role in availableRoles" :key="role.id">
+                <li
+                  class="flex justify-between items-center p-3 bg-slate-50 rounded-lg border border-slate-200"
+                >
+                  <span class="font-medium text-slate-700" x-text="role.name"></span>
+                  <button
+                    @click="removeRole(role.id)"
+                    class="text-red-500 hover:text-red-700 transition px-2 py-1"
+                    title="Delete Role"
+                    x-show="!role.isDefault"
+                  >
+                    <i class="fas fa-times"></i>
+                  </button>
+                  <span x-show="role.isDefault" class="text-xs text-slate-400 italic"
+                    >System Default</span
+                  >
+                </li>
+              </template>
+            </ul>
+
+            <form @submit.prevent="addNewRole" class="flex gap-2">
+              <input
+                type="text"
+                x-model="newRoleName"
+                placeholder="New Role Name (e.g., Co-Chair)"
+                class="flex-1 rounded-md border-slate-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm border p-2"
+                required
+              />
+              <button
+                type="submit"
+                class="bg-slate-800 text-white px-4 py-2 rounded-md hover:bg-slate-700 transition text-sm font-medium"
+              >
+                Add Role
+              </button>
+            </form>
+          </div>
+
+          <!-- Global Agenda Template Settings -->
+          <div
+            class="bg-white rounded-xl shadow-sm border border-slate-100 p-6 flex flex-col justify-between"
+          >
+            <div>
+              <h3 class="text-lg font-semibold text-slate-800 mb-2 border-b pb-2">
+                Global Agenda Template
+              </h3>
+              <p class="text-xs text-slate-500 mb-4">
+                This template auto-populates the agenda notes whenever a new meeting is created in
+                any committee.
+              </p>
+
+              <textarea
+                x-model="agendaTemplate"
+                rows="8"
+                class="w-full border-slate-300 rounded-lg shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-sm p-3 border font-mono text-slate-700 leading-relaxed"
+              ></textarea>
+            </div>
+            <div class="mt-4 flex justify-between items-center">
+              <span class="text-xs text-emerald-600 font-medium" x-show="templateSaved"
+                >Template saved automatically!</span
+              >
+              <button
+                @click="saveAgendaTemplate()"
+                class="ml-auto bg-indigo-600 text-white px-4 py-2 rounded-md hover:bg-indigo-700 transition text-sm font-medium shadow-sm"
+              >
+                <i class="fas fa-save mr-1.5"></i> Save Default Template
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- View: Single Committee Detail -->
+      <div x-show="currentView === 'committee_detail'" x-cloak class="space-y-6 fade-enter-active">
+        <template x-if="activeCommittee">
+          <div>
+            <!-- Breadcrumb -->
+            <nav class="mb-4 text-sm text-slate-500 flex items-center space-x-2">
+              <a
+                href="#"
+                @click.prevent="currentView = 'committees'"
+                class="hover:text-indigo-600 hover:underline"
+                >Committees</a
+              >
+              <i class="fas fa-chevron-right text-xs"></i>
+              <span class="text-slate-800 font-medium" x-text="activeCommittee.name"></span>
+            </nav>
+
+            <!-- Committee Header with Inline Edit Capability -->
+            <header class="bg-white rounded-xl shadow-sm border border-slate-100 p-6 mb-6">
+              <div class="flex justify-between items-start">
+                <div class="flex-1 mr-4">
+                  <!-- Title Mode / Edit Mode -->
+                  <div x-show="!isEditingHeader">
+                    <div class="flex items-center space-x-3">
+                      <h1
+                        class="text-3xl font-bold text-slate-900"
+                        x-text="activeCommittee.name"
+                      ></h1>
+                      <button
+                        @click="isEditingHeader = true"
+                        class="text-slate-400 hover:text-indigo-600 text-sm p-1"
+                        title="Edit Name & Description"
+                      >
+                        <i class="fas fa-pen"></i>
+                      </button>
+                    </div>
+                    <p
+                      class="text-slate-600 mt-2 max-w-3xl"
+                      x-text="activeCommittee.description"
+                    ></p>
+                  </div>
+
+                  <div
+                    x-show="isEditingHeader"
+                    class="space-y-3 bg-slate-50 p-4 rounded-lg border border-indigo-200"
+                  >
+                    <div>
+                      <label class="block text-xs font-semibold uppercase text-slate-500 mb-1"
+                        >Committee Name</label
+                      >
+                      <input
+                        type="text"
+                        x-model="activeCommittee.name"
+                        class="w-full text-lg font-bold border-slate-300 rounded-md p-2 border"
+                        @blur="saveData(); logActivity('Updated name for ' + activeCommittee.name)"
+                      />
+                    </div>
+                    <div>
+                      <label class="block text-xs font-semibold uppercase text-slate-500 mb-1"
+                        >Description / Mandate</label
+                      >
+                      <textarea
+                        x-model="activeCommittee.description"
+                        rows="2"
+                        class="w-full text-sm border-slate-300 rounded-md p-2 border"
+                        @blur="saveData()"
+                      ></textarea>
+                    </div>
+                    <div class="flex justify-end space-x-2">
+                      <button
+                        @click="isEditingHeader = false"
+                        class="bg-indigo-600 text-white px-3 py-1 rounded text-xs font-medium hover:bg-indigo-700"
+                      >
+                        Done Editing
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </header>
+
+            <!-- Tabs -->
+            <div class="border-b border-slate-200 mb-6">
+              <nav class="-mb-px flex space-x-6 overflow-x-auto">
+                <a
+                  href="#"
+                  @click.prevent="detailTab = 'members'"
+                  :class="detailTab === 'members' ? 'border-indigo-500 text-indigo-600' : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'"
+                  class="whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm"
+                  >Members & Roles</a
+                >
+                <a
+                  href="#"
+                  @click.prevent="detailTab = 'meetings'"
+                  :class="detailTab === 'meetings' ? 'border-indigo-500 text-indigo-600' : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'"
+                  class="whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm"
+                  >Meetings & Agendas</a
+                >
+                <a
+                  href="#"
+                  @click.prevent="detailTab = 'goals'"
+                  :class="detailTab === 'goals' ? 'border-indigo-500 text-indigo-600' : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'"
+                  class="whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm"
+                  >Goals</a
+                >
+                <a
+                  href="#"
+                  @click.prevent="detailTab = 'expectations'"
+                  :class="detailTab === 'expectations' ? 'border-indigo-500 text-indigo-600' : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'"
+                  class="whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm"
+                  >Role Expectations</a
+                >
+                <a
+                  href="#"
+                  @click.prevent="detailTab = 'resources'"
+                  :class="detailTab === 'resources' ? 'border-indigo-500 text-indigo-600' : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'"
+                  class="whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm"
+                  >Resource Links & Docs</a
+                >
+              </nav>
+            </div>
+
+            <!-- Tab: Members -->
+            <div x-show="detailTab === 'members'">
+              <div class="flex justify-between items-center mb-4">
+                <h2 class="text-xl font-semibold text-slate-800">Committee Roster</h2>
+                <button
+                  @click="showAddMemberModal = true"
+                  class="bg-indigo-100 text-indigo-700 px-3 py-1.5 rounded text-sm font-medium hover:bg-indigo-200 transition"
+                >
+                  <i class="fas fa-plus mr-1"></i> Assign Member
+                </button>
+              </div>
+
+              <div class="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden">
+                <table class="min-w-full divide-y divide-slate-200">
+                  <thead class="bg-slate-50">
+                    <tr>
+                      <th
+                        scope="col"
+                        class="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider"
+                      >
+                        Member
+                      </th>
+                      <th
+                        scope="col"
+                        class="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider"
+                      >
+                        Committee Role
+                      </th>
+                      <th
+                        scope="col"
+                        class="px-6 py-3 text-right text-xs font-medium text-slate-500 uppercase tracking-wider"
+                      >
+                        Actions
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody class="bg-white divide-y divide-slate-200">
+                    <template x-for="cm in activeCommittee.members" :key="cm.personId">
+                      <tr class="hover:bg-slate-50">
+                        <td class="px-6 py-4 whitespace-nowrap">
+                          <div class="flex items-center">
+                            <div class="ml-4">
+                              <div
+                                class="text-sm font-medium text-slate-900"
+                                x-text="getPersonName(cm.personId)"
+                              ></div>
+                              <div
+                                class="text-xs text-slate-500"
+                                x-text="getPersonType(cm.personId)"
+                              ></div>
+                            </div>
+                          </div>
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap">
+                          <!-- Role Editor -->
+                          <select
+                            x-model="cm.roleId"
+                            class="block w-full pl-3 pr-10 py-1 text-sm border-slate-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md"
+                            @change="saveData()"
+                          >
+                            <template x-for="role in availableRoles" :key="role.id">
+                              <option
+                                :value="role.id"
+                                x-text="role.name"
+                                :selected="cm.roleId === role.id"
+                              ></option>
+                            </template>
+                          </select>
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                          <button
+                            @click="removeMemberFromCommittee(activeCommittee.id, cm.personId)"
+                            class="text-red-600 hover:text-red-900"
+                          >
+                            <i class="fas fa-user-minus"></i>
+                          </button>
+                        </td>
+                      </tr>
+                    </template>
+                    <tr x-show="activeCommittee.members.length === 0">
+                      <td colspan="3" class="px-6 py-8 text-center text-slate-500">
+                        No members assigned yet.
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <!-- Tab: Meetings -->
+            <div x-show="detailTab === 'meetings'">
+              <div class="flex justify-between items-center mb-4">
+                <h2 class="text-xl font-semibold text-slate-800">Meetings</h2>
+                <button
+                  @click="createNewMeeting()"
+                  class="bg-indigo-100 text-indigo-700 px-3 py-1.5 rounded text-sm font-medium hover:bg-indigo-200 transition"
+                >
+                  <i class="fas fa-calendar-plus mr-1"></i> New Meeting
+                </button>
+              </div>
+
+              <div class="space-y-4">
+                <template x-for="(meeting, mIndex) in activeCommittee.meetings" :key="meeting.id">
+                  <div class="bg-white rounded-xl shadow-sm border border-slate-100 p-5">
+                    <div class="flex justify-between items-start mb-4">
+                      <div>
+                        <input
+                          type="text"
+                          x-model="meeting.title"
+                          class="text-lg font-bold text-slate-900 border-none bg-transparent p-0 focus:ring-0 w-full"
+                          @blur="saveData()"
+                        />
+                        <div class="flex items-center space-x-4 mt-1">
+                          <input
+                            type="date"
+                            x-model="meeting.date"
+                            class="text-sm text-slate-500 border-slate-200 rounded py-1 px-2"
+                            @change="saveData()"
+                          />
+                          <span
+                            class="text-xs px-2 py-1 bg-slate-100 rounded-full text-slate-600"
+                            x-text="meeting.status"
+                          ></span>
+                        </div>
+                      </div>
+                      <button
+                        @click="deleteMeeting(mIndex)"
+                        class="text-slate-400 hover:text-red-600"
+                      >
+                        <i class="fas fa-trash"></i>
+                      </button>
+                    </div>
+
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-4">
+                      <!-- Agenda & Notes -->
+                      <div>
+                        <h4 class="text-sm font-semibold uppercase text-slate-500 mb-2">
+                          Agenda & Notes
+                        </h4>
+                        <textarea
+                          x-model="meeting.agendaNotes"
+                          rows="6"
+                          class="w-full border-slate-200 rounded-md shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-3"
+                          placeholder="Draft agenda, record minutes, note key decisions here..."
+                          @blur="saveData()"
+                        ></textarea>
+                      </div>
+
+                      <!-- Action Items -->
+                      <div>
+                        <div class="flex justify-between items-center mb-2">
+                          <h4 class="text-sm font-semibold uppercase text-slate-500">
+                            Action Items
+                          </h4>
+                          <button
+                            @click="addActionItem(meeting)"
+                            class="text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 px-2 py-1 rounded"
+                          >
+                            <i class="fas fa-plus"></i> Add Action
+                          </button>
+                        </div>
+                        <ul class="space-y-3">
+                          <template
+                            x-for="(action, aIndex) in meeting.actionItems"
+                            :key="action.id"
+                          >
+                            <li
+                              class="bg-slate-50 border border-slate-200 p-3 rounded-lg relative group"
+                            >
+                              <div class="flex gap-2 mb-2">
+                                <input
+                                  type="checkbox"
+                                  x-model="action.completed"
+                                  class="mt-1 rounded text-indigo-600 focus:ring-indigo-500"
+                                  @change="saveData()"
+                                />
+                                <input
+                                  type="text"
+                                  x-model="action.task"
+                                  class="flex-1 text-sm bg-transparent border-none p-0 focus:ring-0"
+                                  placeholder="Describe action..."
+                                  :class="{'line-through text-slate-400': action.completed}"
+                                  @blur="saveData()"
+                                />
+                              </div>
+                              <div class="flex items-center gap-2 pl-6">
+                                <select
+                                  x-model="action.assigneeId"
+                                  class="text-xs border-slate-200 rounded py-1 pl-2 pr-6"
+                                  @change="saveData()"
+                                >
+                                  <option value="">Unassigned</option>
+                                  <template
+                                    x-for="cm in activeCommittee.members"
+                                    :key="cm.personId"
+                                  >
+                                    <option
+                                      :value="cm.personId"
+                                      x-text="getPersonName(cm.personId)"
+                                    ></option>
+                                  </template>
+                                </select>
+                                <select
+                                  x-model="action.priority"
+                                  class="text-xs border-slate-200 rounded py-1 pl-2 pr-6"
+                                  :class="{'text-red-600 font-bold': action.priority === 'High', 'text-yellow-600 font-medium': action.priority === 'Medium', 'text-green-600': action.priority === 'Low'}"
+                                  @change="saveData()"
+                                >
+                                  <option value="Low" class="text-green-600">Low Pri</option>
+                                  <option value="Medium" class="text-yellow-600">Med Pri</option>
+                                  <option value="High" class="text-red-600">High Pri</option>
+                                </select>
+                              </div>
+                              <button
+                                @click="removeActionItem(meeting, aIndex)"
+                                class="absolute top-2 right-2 text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition"
+                              >
+                                <i class="fas fa-times"></i>
+                              </button>
+                            </li>
+                          </template>
+                          <li
+                            x-show="meeting.actionItems.length === 0"
+                            class="text-xs text-slate-500 italic py-2"
+                          >
+                            No action items for this meeting.
+                          </li>
+                        </ul>
+                      </div>
+                    </div>
+                  </div>
+                </template>
+                <div
+                  x-show="activeCommittee.meetings.length === 0"
+                  class="py-8 text-center text-slate-500 bg-white rounded-xl border border-dashed border-slate-300"
+                >
+                  No meetings scheduled.
+                </div>
+              </div>
+            </div>
+
+            <!-- Tab: Goals -->
+            <div x-show="detailTab === 'goals'">
+              <div class="flex justify-between items-center mb-4">
+                <h2 class="text-xl font-semibold text-slate-800">Committee Goals</h2>
+                <button
+                  @click="addGoal()"
+                  class="bg-indigo-100 text-indigo-700 px-3 py-1.5 rounded text-sm font-medium hover:bg-indigo-200 transition"
+                >
+                  <i class="fas fa-bullseye mr-1"></i> Add Goal
+                </button>
+              </div>
+              <div class="bg-white rounded-xl shadow-sm border border-slate-100 p-6">
+                <ul class="space-y-4">
+                  <template x-for="(goal, gIndex) in activeCommittee.goals" :key="goal.id">
+                    <li
+                      class="flex items-start gap-4 p-4 border border-slate-200 rounded-lg hover:border-indigo-300 transition group"
+                    >
+                      <div class="pt-1">
+                        <input
+                          type="checkbox"
+                          x-model="goal.completed"
+                          class="h-5 w-5 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500"
+                          @change="saveData()"
+                        />
+                      </div>
+                      <div class="flex-1">
+                        <input
+                          type="text"
+                          x-model="goal.title"
+                          class="w-full text-lg font-medium bg-transparent border-none p-0 focus:ring-0"
+                          :class="{'line-through text-slate-400': goal.completed}"
+                          placeholder="Enter goal description..."
+                          @blur="saveData()"
+                        />
+                        <div class="mt-2 flex items-center gap-2">
+                          <i class="far fa-calendar text-slate-400 text-sm"></i>
+                          <input
+                            type="date"
+                            x-model="goal.targetDate"
+                            class="text-sm text-slate-500 border-none bg-transparent p-0 focus:ring-0"
+                            @change="saveData()"
+                            title="Target Date (Optional)"
+                          />
+                          <span x-show="!goal.targetDate" class="text-xs text-slate-400 italic"
+                            >(No target date set)</span
+                          >
+                        </div>
+                      </div>
+                      <button
+                        @click="removeGoal(gIndex)"
+                        class="text-slate-300 hover:text-red-500 transition opacity-0 group-hover:opacity-100 p-2"
+                      >
+                        <i class="fas fa-trash"></i>
+                      </button>
+                    </li>
+                  </template>
+                </ul>
+                <div
+                  x-show="activeCommittee.goals.length === 0"
+                  class="py-6 text-center text-slate-500"
+                >
+                  Set goals to guide this committee's efforts.
+                </div>
+              </div>
+            </div>
+
+            <!-- Tab: Role Expectations -->
+            <div x-show="detailTab === 'expectations'">
+              <div class="mb-4">
+                <h2 class="text-xl font-semibold text-slate-800">Committee Role Expectations</h2>
+                <p class="text-xs text-slate-500 mt-0.5">
+                  Define specific duties, operational guidelines, and responsibilities for each role
+                  within this committee.
+                </p>
+              </div>
+
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <template x-for="role in availableRoles" :key="role.id">
+                  <div
+                    class="bg-white rounded-xl shadow-sm border border-slate-100 p-5 flex flex-col justify-between"
+                  >
+                    <div>
+                      <div class="flex items-center space-x-2 mb-3">
+                        <span class="p-2 bg-indigo-50 text-indigo-600 rounded-lg">
+                          <i class="fas fa-user-shield text-sm"></i>
+                        </span>
+                        <h3 class="font-bold text-slate-800 text-base" x-text="role.name"></h3>
+                      </div>
+                      <label
+                        class="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2"
+                        >Expectations & Responsibilities</label
+                      >
+                      <textarea
+                        x-model="getCommitteeRoleExpectations(role.id).text"
+                        @blur="saveData(); logActivity('Updated role expectations for ' + role.name + ' in ' + activeCommittee.name)"
+                        rows="4"
+                        class="w-full text-xs sm:text-sm border-slate-200 rounded-lg shadow-sm focus:border-indigo-500 focus:ring-indigo-500 p-3 border leading-relaxed text-slate-700"
+                        placeholder="Describe duties, meeting preparation expectations, reporting responsibilities..."
+                      >
+                      </textarea>
+                    </div>
+                  </div>
+                </template>
+              </div>
+            </div>
+
+            <!-- Tab: Resource Links & Documents -->
+            <div x-show="detailTab === 'resources'">
+              <div class="flex justify-between items-center mb-4">
+                <div>
+                  <h2 class="text-xl font-semibold text-slate-800">Resource Links & Documents</h2>
+                  <p class="text-xs text-slate-500">
+                    Grouped documentation, cloud folders, guidelines, and reference links.
+                  </p>
+                </div>
+                <button
+                  @click="openAddResourceGroupModal()"
+                  class="bg-indigo-600 text-white px-3 py-1.5 rounded-lg text-sm font-medium hover:bg-indigo-700 transition shadow-sm"
+                >
+                  <i class="fas fa-folder-plus mr-1"></i> Add Category Folder
+                </button>
+              </div>
+
+              <div class="space-y-6">
+                <template
+                  x-for="(group, gIndex) in activeCommittee?.resourceGroups || []"
+                  :key="group.id"
+                >
+                  <div
+                    class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden"
+                  >
+                    <!-- Group Header / Folder Title Bar -->
+                    <div
+                      class="bg-slate-100/80 px-5 py-3 border-b border-slate-200 flex justify-between items-center"
+                    >
+                      <div class="flex items-center space-x-3">
+                        <button
+                          @click="group.collapsed = !group.collapsed; saveData()"
+                          class="text-slate-500 hover:text-slate-800"
+                        >
+                          <i
+                            class="fas"
+                            :class="group.collapsed ? 'fa-chevron-right' : 'fa-chevron-down'"
+                          ></i>
+                        </button>
+                        <i class="fas fa-folder text-indigo-500"></i>
+                        <input
+                          type="text"
+                          x-model="group.name"
+                          @blur="saveData()"
+                          class="font-bold text-slate-800 bg-transparent border-none p-0 focus:ring-0 text-base"
+                        />
+                        <span
+                          class="text-xs text-slate-400 font-normal"
+                          x-text="'(' + (group.links ? group.links.length : 0) + ' links)'"
+                        ></span>
+                      </div>
+
+                      <!-- Group Actions & Reordering -->
+                      <div class="flex items-center space-x-2">
+                        <button
+                          @click="moveResourceGroup(gIndex, -1)"
+                          :disabled="gIndex === 0"
+                          class="p-1 text-slate-400 hover:text-indigo-600 disabled:opacity-30"
+                          title="Move Category Up"
+                        >
+                          <i class="fas fa-arrow-up text-xs"></i>
+                        </button>
+                        <button
+                          @click="moveResourceGroup(gIndex, 1)"
+                          :disabled="gIndex === (activeCommittee.resourceGroups.length - 1)"
+                          class="p-1 text-slate-400 hover:text-indigo-600 disabled:opacity-30"
+                          title="Move Category Down"
+                        >
+                          <i class="fas fa-arrow-down text-xs"></i>
+                        </button>
+                        <button
+                          @click="openAddLinkModal(group)"
+                          class="text-xs bg-indigo-50 text-indigo-700 hover:bg-indigo-100 font-medium px-2.5 py-1 rounded transition border border-indigo-200"
+                        >
+                          <i class="fas fa-link mr-1"></i> Add Link
+                        </button>
+                        <button
+                          @click="deleteResourceGroup(gIndex)"
+                          class="p-1 text-slate-400 hover:text-red-600"
+                          title="Delete Folder"
+                        >
+                          <i class="fas fa-trash text-xs"></i>
+                        </button>
+                      </div>
+                    </div>
+
+                    <!-- Group Links List (Collapsible) -->
+                    <div x-show="!group.collapsed" class="divide-y divide-slate-100">
+                      <template x-for="(link, lIndex) in group.links" :key="link.id">
+                        <div
+                          class="p-4 hover:bg-slate-50 flex items-center justify-between group transition"
+                        >
+                          <div class="flex items-start space-x-3 flex-1 mr-4">
+                            <i class="fas fa-external-link-alt text-slate-400 text-xs mt-1"></i>
+                            <div>
+                              <a
+                                :href="link.url"
+                                target="_blank"
+                                class="font-semibold text-indigo-600 hover:underline text-sm flex items-center"
+                                x-text="link.title"
+                              ></a>
+                              <p
+                                class="text-xs text-slate-500 mt-0.5"
+                                x-text="link.description"
+                              ></p>
+                              <span
+                                class="text-[10px] text-slate-400 font-mono"
+                                x-text="link.url"
+                              ></span>
+                            </div>
+                          </div>
+
+                          <!-- Item Reordering and Delete -->
+                          <div
+                            class="flex items-center space-x-2 opacity-80 group-hover:opacity-100"
+                          >
+                            <button
+                              @click="moveResourceLink(group, lIndex, -1)"
+                              :disabled="lIndex === 0"
+                              class="p-1 text-slate-400 hover:text-indigo-600 disabled:opacity-20"
+                              title="Move Up"
+                            >
+                              <i class="fas fa-chevron-up text-xs"></i>
+                            </button>
+                            <button
+                              @click="moveResourceLink(group, lIndex, 1)"
+                              :disabled="lIndex === group.links.length - 1"
+                              class="p-1 text-slate-400 hover:text-indigo-600 disabled:opacity-20"
+                              title="Move Down"
+                            >
+                              <i class="fas fa-chevron-down text-xs"></i>
+                            </button>
+                            <button
+                              @click="deleteResourceLink(group, lIndex)"
+                              class="p-1 text-slate-400 hover:text-red-600"
+                              title="Remove Link"
+                            >
+                              <i class="fas fa-times text-xs"></i>
+                            </button>
+                          </div>
+                        </div>
+                      </template>
+                      <div
+                        x-show="!group.links || group.links.length === 0"
+                        class="p-4 text-center text-xs text-slate-400 italic"
+                      >
+                        No links added to this category yet. Click "Add Link" above.
+                      </div>
+                    </div>
+                  </div>
+                </template>
+
+                <div
+                  x-show="!activeCommittee?.resourceGroups || activeCommittee.resourceGroups.length === 0"
+                  class="py-12 text-center text-slate-400 bg-white rounded-xl border border-dashed border-slate-300"
+                >
+                  <i class="fas fa-folder-open fa-3x mb-3 text-slate-300"></i>
+                  <p class="text-sm">No resource categories established.</p>
+                  <button
+                    @click="openAddResourceGroupModal()"
+                    class="mt-2 text-xs font-semibold text-indigo-600 hover:underline"
+                  >
+                    Create first category folder
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </template>
+      </div>
+    </main>
+
+    <!-- Modals -->
+
+    <!-- Add Person Modal -->
+    <div
+      x-show="showAddPersonModal"
+      class="fixed inset-0 z-50 overflow-y-auto"
+      aria-labelledby="modal-title"
+      role="dialog"
+      aria-modal="true"
+      x-cloak
+    >
+      <div
+        class="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0"
+      >
+        <div
+          class="fixed inset-0 bg-slate-900 bg-opacity-75 transition-opacity"
+          aria-hidden="true"
+          @click="showAddPersonModal = false"
+        ></div>
+        <span class="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true"
+          >&#8203;</span
+        >
+        <div
+          class="inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full"
+        >
+          <form @submit.prevent="submitAddPerson">
+            <div class="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
+              <h3 class="text-lg leading-6 font-medium text-slate-900 mb-4">Add New Personnel</h3>
+              <div class="space-y-4">
+                <div>
+                  <label class="block text-sm font-medium text-slate-700">Full Name</label>
+                  <input
+                    type="text"
+                    x-model="newPerson.name"
+                    required
+                    class="mt-1 block w-full border border-slate-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                  />
+                </div>
+                <div>
+                  <label class="block text-sm font-medium text-slate-700">Email</label>
+                  <input
+                    type="email"
+                    x-model="newPerson.email"
+                    required
+                    class="mt-1 block w-full border border-slate-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                  />
+                </div>
+                <div>
+                  <label class="block text-sm font-medium text-slate-700">Type</label>
+                  <select
+                    x-model="newPerson.type"
+                    class="mt-1 block w-full bg-white border border-slate-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                  >
+                    <option value="Faculty">Faculty</option>
+                    <option value="Staff">Staff</option>
+                    <option value="Admin">Admin</option>
+                  </select>
+                </div>
+                <div>
+                  <label class="block text-sm font-medium text-slate-700">Department / Title</label>
+                  <input
+                    type="text"
+                    x-model="newPerson.details"
+                    class="mt-1 block w-full border border-slate-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                    placeholder="e.g. Computer Science / Dept. Head"
+                  />
+                </div>
+              </div>
+            </div>
+            <div class="bg-slate-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
+              <button
+                type="submit"
+                class="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-indigo-600 text-base font-medium text-white hover:bg-indigo-700 focus:outline-none sm:ml-3 sm:w-auto sm:text-sm"
+              >
+                Save Person
+              </button>
+              <button
+                type="button"
+                @click="showAddPersonModal = false"
+                class="mt-3 w-full inline-flex justify-center rounded-md border border-slate-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-slate-700 hover:bg-slate-50 focus:outline-none sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm"
+              >
+                Cancel
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+
+    <!-- Create Committee Modal -->
+    <div
+      x-show="showAddCommitteeModal"
+      class="fixed inset-0 z-50 overflow-y-auto"
+      aria-labelledby="modal-title"
+      role="dialog"
+      aria-modal="true"
+      x-cloak
+    >
+      <div
+        class="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0"
+      >
+        <div
+          class="fixed inset-0 bg-slate-900 bg-opacity-75 transition-opacity"
+          aria-hidden="true"
+          @click="showAddCommitteeModal = false"
+        ></div>
+        <span class="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true"
+          >&#8203;</span
+        >
+        <div
+          class="inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full"
+        >
+          <form @submit.prevent="submitAddCommittee">
+            <div class="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
+              <h3 class="text-lg leading-6 font-medium text-slate-900 mb-4">
+                Create New Committee
+              </h3>
+              <div class="space-y-4">
+                <div>
+                  <label class="block text-sm font-medium text-slate-700">Committee Name</label>
+                  <input
+                    type="text"
+                    x-model="newCommittee.name"
+                    required
+                    class="mt-1 block w-full border border-slate-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                  />
+                </div>
+                <div>
+                  <label class="block text-sm font-medium text-slate-700"
+                    >Description / Mandate</label
+                  >
+                  <textarea
+                    x-model="newCommittee.description"
+                    rows="3"
+                    class="mt-1 block w-full border border-slate-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                  ></textarea>
+                </div>
+              </div>
+            </div>
+            <div class="bg-slate-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
+              <button
+                type="submit"
+                class="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-indigo-600 text-base font-medium text-white hover:bg-indigo-700 focus:outline-none sm:ml-3 sm:w-auto sm:text-sm"
+              >
+                Create
+              </button>
+              <button
+                type="button"
+                @click="showAddCommitteeModal = false"
+                class="mt-3 w-full inline-flex justify-center rounded-md border border-slate-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-slate-700 hover:bg-slate-50 focus:outline-none sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm"
+              >
+                Cancel
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+
+    <!-- Assign Member to Committee Modal -->
+    <div
+      x-show="showAddMemberModal"
+      class="fixed inset-0 z-50 overflow-y-auto"
+      aria-labelledby="modal-title"
+      role="dialog"
+      aria-modal="true"
+      x-cloak
+    >
+      <div
+        class="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0"
+      >
+        <div
+          class="fixed inset-0 bg-slate-900 bg-opacity-75 transition-opacity"
+          aria-hidden="true"
+          @click="showAddMemberModal = false"
+        ></div>
+        <span class="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true"
+          >&#8203;</span
+        >
+        <div
+          class="inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full"
+        >
+          <div class="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
+            <h3 class="text-lg leading-6 font-medium text-slate-900 mb-4">
+              Assign Member to <span x-text="activeCommittee?.name"></span>
+            </h3>
+
+            <div class="mb-4">
+              <input
+                type="text"
+                x-model="memberSearchQuery"
+                placeholder="Search personnel..."
+                class="block w-full border border-slate-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+              />
+            </div>
+
+            <div class="max-h-60 overflow-y-auto divide-y divide-slate-100">
+              <template x-for="person in availablePersonnelForActiveCommittee" :key="person.id">
+                <div
+                  class="py-2.5 px-2 flex justify-between items-center hover:bg-slate-50 rounded"
+                >
+                  <div>
+                    <p class="text-sm font-medium text-slate-800" x-text="person.name"></p>
+                    <p
+                      class="text-xs text-slate-500"
+                      x-text="person.type + ' • ' + person.details"
+                    ></p>
+                  </div>
+                  <button
+                    @click="addMemberToCommittee(person.id)"
+                    class="text-xs bg-indigo-600 hover:bg-indigo-700 text-white font-medium px-3 py-1.5 rounded transition"
+                  >
+                    Add
+                  </button>
+                </div>
+              </template>
+              <div
+                x-show="availablePersonnelForActiveCommittee.length === 0"
+                class="py-4 text-center text-xs text-slate-500 italic"
+              >
+                No available personnel to add.
+              </div>
+            </div>
+          </div>
+          <div class="bg-slate-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
+            <button
+              type="button"
+              @click="showAddMemberModal = false"
+              class="w-full inline-flex justify-center rounded-md border border-slate-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-slate-700 hover:bg-slate-50 focus:outline-none sm:w-auto sm:text-sm"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal: Add Resource Category Folder -->
+    <div
+      x-show="showAddResourceGroupModal"
+      class="fixed inset-0 z-50 overflow-y-auto"
+      aria-hidden="true"
+      x-cloak
+    >
+      <div class="flex items-center justify-center min-h-screen px-4 text-center">
+        <div
+          class="fixed inset-0 bg-slate-900/75 transition-opacity"
+          @click="showAddResourceGroupModal = false"
+        ></div>
+        <div
+          class="inline-block bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:max-w-lg sm:w-full p-6 z-10"
+        >
+          <h3 class="text-lg font-bold text-slate-900 mb-4">Add Resource Category</h3>
+          <input
+            type="text"
+            x-model="newGroupName"
+            placeholder="Category Name (e.g. Governance Documents, Templates)"
+            class="w-full border border-slate-300 rounded-md p-2 text-sm mb-4"
+          />
+          <div class="flex justify-end space-x-2">
+            <button
+              @click="showAddResourceGroupModal = false"
+              class="px-4 py-2 bg-slate-100 text-slate-700 rounded-md text-sm hover:bg-slate-200"
+            >
+              Cancel
+            </button>
+            <button
+              @click="submitAddResourceGroup()"
+              class="px-4 py-2 bg-indigo-600 text-white rounded-md text-sm hover:bg-indigo-700"
+            >
+              Add Category
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal: Add Resource Link -->
+    <div
+      x-show="showAddLinkModal"
+      class="fixed inset-0 z-50 overflow-y-auto"
+      aria-hidden="true"
+      x-cloak
+    >
+      <div class="flex items-center justify-center min-h-screen px-4 text-center">
+        <div
+          class="fixed inset-0 bg-slate-900/75 transition-opacity"
+          @click="showAddLinkModal = false"
+        ></div>
+        <div
+          class="inline-block bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:max-w-lg sm:w-full p-6 z-10"
+        >
+          <h3 class="text-lg font-bold text-slate-900 mb-4">
+            Add Link to <span class="text-indigo-600" x-text="targetResourceGroup?.name"></span>
+          </h3>
+          <div class="space-y-4">
+            <div>
+              <label class="block text-xs font-semibold uppercase text-slate-500 mb-1"
+                >Link Title</label
+              >
+              <input
+                type="text"
+                x-model="newLink.title"
+                placeholder="e.g., Committee Shared Google Drive"
+                class="w-full border border-slate-300 rounded-md p-2 text-sm"
+              />
+            </div>
+            <div>
+              <label class="block text-xs font-semibold uppercase text-slate-500 mb-1"
+                >URL / Hyperlink</label
+              >
+              <input
+                type="url"
+                x-model="newLink.url"
+                placeholder="https://..."
+                class="w-full border border-slate-300 rounded-md p-2 text-sm"
+              />
+            </div>
+            <div>
+              <label class="block text-xs font-semibold uppercase text-slate-500 mb-1"
+                >Description (Optional)</label
+              >
+              <input
+                type="text"
+                x-model="newLink.description"
+                placeholder="Short description of this document or folder"
+                class="w-full border border-slate-300 rounded-md p-2 text-sm"
+              />
+            </div>
+          </div>
+          <div class="flex justify-end space-x-2 mt-6">
+            <button
+              @click="showAddLinkModal = false"
+              class="px-4 py-2 bg-slate-100 text-slate-700 rounded-md text-sm hover:bg-slate-200"
+            >
+              Cancel
+            </button>
+            <button
+              @click="submitAddLink()"
+              class="px-4 py-2 bg-indigo-600 text-white rounded-md text-sm hover:bg-indigo-700"
+            >
+              Add Link
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      // Mock Initial Data generator
+      const generateId = () => Math.random().toString(36).substr(2, 9);
+
+      document.addEventListener("alpine:init", () => {
+        Alpine.data("committeeApp", () => ({
+          currentView: "dashboard", // dashboard, personnel, committees, committee_detail, settings
+          detailTab: "members", // members, meetings, goals, expectations, resources
+
+          // Modals & UI Toggles
+          showAddPersonModal: false,
+          showAddCommitteeModal: false,
+          showAddMemberModal: false,
+          showAddResourceGroupModal: false,
+          showAddLinkModal: false,
+          showSearchDropdown: false,
+          isEditingHeader: false,
+          templateSaved: false,
+
+          // Search & Inspector
+          globalSearchQuery: "",
+          committeeSearchQuery: "",
+          selectedDashboardCommitteeId: "c1",
+
+          // Global Settings Data
+          agendaTemplate: `1. Call to Order & Attendance Roll Call
+2. Review & Approval of Minutes from Previous Meeting
+3. Executive & Subcommittee Standing Reports
+4. Unfinished Business & Policy Discussions
+5. New Proposals & Strategic Agenda Items
+6. Action Item Assignments & Next Steps
+7. Adjournment`,
+
+          // Activity Feed
+          activityLog: [
+            {
+              id: generateId(),
+              text: 'Created meeting "Fall Planning Session" in Curriculum Review Committee',
+              timestamp: "2 hours ago",
+            },
+            {
+              id: generateId(),
+              text: "Added Dr. Alan Turing to Curriculum Review Committee",
+              timestamp: "1 day ago",
+            },
+          ],
+
+          // Resource Link Form States
+          newGroupName: "",
+          targetResourceGroup: null,
+          newLink: { title: "", url: "https://", description: "" },
+
+          // Filter & Search
+          personnelFilter: "All",
+          memberSearchQuery: "",
+
+          // Data Stores (Loaded from local storage or defaults)
+          availableRoles: [
+            { id: "r1", name: "Chair", isDefault: true },
+            { id: "r2", name: "Member", isDefault: true },
+            { id: "r3", name: "Secretary", isDefault: true },
+            { id: "r4", name: "Observer", isDefault: false },
+          ],
+
+          personnel: [
+            {
+              id: "p1",
+              name: "Dr. Alan Turing",
+              email: "alan@uni.edu",
+              type: "Faculty",
+              details: "Computer Science",
+            },
+            {
+              id: "p2",
+              name: "Ada Lovelace",
+              email: "ada@uni.edu",
+              type: "Faculty",
+              details: "Mathematics",
+            },
+            {
+              id: "p3",
+              name: "Grace Hopper",
+              email: "grace@uni.edu",
+              type: "Admin",
+              details: "Dean of Sciences",
+            },
+            {
+              id: "p4",
+              name: "Tim Berners-Lee",
+              email: "tim@uni.edu",
+              type: "Staff",
+              details: "IT Services",
+            },
+          ],
+
+          committees: [
+            {
+              id: "c1",
+              name: "Curriculum Review Committee",
+              description:
+                "Responsible for evaluating and approving new course proposals and degree requirements.",
+              members: [
+                { personId: "p3", roleId: "r1" }, // Grace is Chair
+                { personId: "p1", roleId: "r2" }, // Alan is Member
+                { personId: "p2", roleId: "r2" }, // Ada is Member
+              ],
+              roleExpectations: [
+                {
+                  roleId: "r1",
+                  text: "Facilitate discussions, prepare meeting agendas, submit quarterly reports to Academic Senate.",
+                },
+                {
+                  roleId: "r2",
+                  text: "Review syllabus proposals prior to monthly meetings, participate in voting.",
+                },
+              ],
+              resourceGroups: [
+                {
+                  id: generateId(),
+                  name: "Official Guidelines & Handbooks",
+                  collapsed: false,
+                  links: [
+                    {
+                      id: generateId(),
+                      title: "University Course Catalog Policies",
+                      url: "https://example.edu/policies/catalog",
+                      description: "Standard operating procedure for adding courses",
+                    },
+                  ],
+                },
+              ],
+              meetings: [
+                {
+                  id: generateId(),
+                  title: "Fall Planning Session",
+                  date: "2026-09-15",
+                  status: "Completed",
+                  agendaNotes: "Reviewed CS101 syllabus changes. Approved.",
+                  actionItems: [
+                    {
+                      id: generateId(),
+                      task: "Update course catalog",
+                      assigneeId: "p3",
+                      priority: "High",
+                      completed: true,
+                    },
+                    {
+                      id: generateId(),
+                      task: "Notify registrar",
+                      assigneeId: "p4",
+                      priority: "Medium",
+                      completed: false,
+                    },
+                  ],
+                },
+              ],
+              goals: [
+                {
+                  id: generateId(),
+                  title: "Integrate AI ethics into core CS courses",
+                  targetDate: "2026-12-01",
+                  completed: false,
+                },
+              ],
+            },
+          ],
+
+          // Form States
+          newPerson: { name: "", email: "", type: "Faculty", details: "" },
+          newCommittee: { name: "", description: "" },
+          newRoleName: "",
+          activeCommitteeId: null,
+
+          init() {
+            const savedData = localStorage.getItem("uniCommData");
+            if (savedData) {
+              try {
+                const parsed = JSON.parse(savedData);
+                this.personnel = parsed.personnel || this.personnel;
+                this.committees = parsed.committees || this.committees;
+                this.availableRoles = parsed.availableRoles || this.availableRoles;
+                this.agendaTemplate = parsed.agendaTemplate || this.agendaTemplate;
+                this.activityLog = parsed.activityLog || this.activityLog;
+              } catch (e) {
+                console.error("Error loading saved data", e);
+              }
+            }
+
+            // Ensure all committees have required structures initialized
+            this.committees.forEach((c) => {
+              if (!c.resourceGroups) c.resourceGroups = [];
+              if (!c.roleExpectations) c.roleExpectations = [];
+              if (!c.meetings) c.meetings = [];
+              if (!c.goals) c.goals = [];
+              if (!c.members) c.members = [];
+            });
+
+            if (this.committees.length > 0) {
+              this.selectedDashboardCommitteeId = this.committees[0].id;
+            }
+
+            this.$watch("personnel", () => this.saveData(), { deep: true });
+            this.$watch("committees", () => this.saveData(), { deep: true });
+            this.$watch("availableRoles", () => this.saveData(), { deep: true });
+            this.$watch("activityLog", () => this.saveData(), { deep: true });
+          },
+
+          saveData() {
+            const data = {
+              personnel: this.personnel,
+              committees: this.committees,
+              availableRoles: this.availableRoles,
+              agendaTemplate: this.agendaTemplate,
+              activityLog: this.activityLog,
+            };
+            localStorage.setItem("uniCommData", JSON.stringify(data));
+          },
+
+          logActivity(text) {
+            this.activityLog.unshift({
+              id: generateId(),
+              text: text,
+              timestamp: "Just now",
+            });
+            if (this.activityLog.length > 30) this.activityLog.pop();
+          },
+
+          // Search Computed Results
+          get searchResults() {
+            const q = this.globalSearchQuery.toLowerCase().trim();
+            if (!q) return { personnel: [], meetings: [], actions: [], roles: [] };
+
+            const matchingPersonnel = this.personnel.filter(
+              (p) => p.name.toLowerCase().includes(q) || p.details.toLowerCase().includes(q),
+            );
+
+            const matchingMeetings = [];
+            const matchingActions = [];
+
+            this.committees.forEach((c) => {
+              if (c.meetings) {
+                c.meetings.forEach((m) => {
+                  if (
+                    m.title.toLowerCase().includes(q) ||
+                    (m.agendaNotes && m.agendaNotes.toLowerCase().includes(q))
+                  ) {
+                    matchingMeetings.push({ ...m, committeeName: c.name, committeeId: c.id });
+                  }
+                  if (m.actionItems) {
+                    m.actionItems.forEach((a) => {
+                      if (a.task.toLowerCase().includes(q)) {
+                        matchingActions.push({ ...a, committeeName: c.name, committeeId: c.id });
+                      }
+                    });
+                  }
+                });
+              }
+            });
+
+            const matchingRoles = this.availableRoles.filter((r) =>
+              r.name.toLowerCase().includes(q),
+            );
+
+            return {
+              personnel: matchingPersonnel.slice(0, 5),
+              meetings: matchingMeetings.slice(0, 5),
+              actions: matchingActions.slice(0, 5),
+              roles: matchingRoles.slice(0, 5),
+            };
+          },
+
+          // Agenda Template
+          saveAgendaTemplate() {
+            this.saveData();
+            this.templateSaved = true;
+            setTimeout(() => {
+              this.templateSaved = false;
+            }, 3000);
+            this.logActivity("Updated Global Agenda Template");
+          },
+
+          // Inspector Computed
+          get inspectedCommittee() {
+            const c =
+              this.committees.find((c) => c.id === this.selectedDashboardCommitteeId) ||
+              this.committees[0];
+            if (c) {
+              if (!c.resourceGroups) c.resourceGroups = [];
+              if (!c.roleExpectations) c.roleExpectations = [];
+              if (!c.meetings) c.meetings = [];
+              if (!c.goals) c.goals = [];
+            }
+            return c;
+          },
+
+          getCommitteePendingActions(committee) {
+            if (!committee || !committee.meetings) return [];
+            const pending = [];
+            committee.meetings.forEach((m) => {
+              if (m.actionItems) {
+                m.actionItems.forEach((a) => {
+                  if (!a.completed) pending.push(a);
+                });
+              }
+            });
+            return pending;
+          },
+
+          // Role Expectations Logic
+          getCommitteeRoleExpectations(roleId) {
+            if (!this.activeCommittee) return { text: "" };
+            if (!this.activeCommittee.roleExpectations) {
+              this.activeCommittee.roleExpectations = [];
+            }
+            let found = this.activeCommittee.roleExpectations.find((re) => re.roleId === roleId);
+            if (!found) {
+              found = { roleId: roleId, text: "" };
+              this.activeCommittee.roleExpectations.push(found);
+            }
+            return found;
+          },
+
+          // Resource Group & Links Logic
+          openAddResourceGroupModal() {
+            this.newGroupName = "";
+            this.showAddResourceGroupModal = true;
+          },
+
+          submitAddResourceGroup() {
+            if (!this.newGroupName.trim() || !this.activeCommittee) return;
+            if (!this.activeCommittee.resourceGroups) this.activeCommittee.resourceGroups = [];
+
+            this.activeCommittee.resourceGroups.push({
+              id: generateId(),
+              name: this.newGroupName.trim(),
+              collapsed: false,
+              links: [],
+            });
+            this.showAddResourceGroupModal = false;
+            this.saveData();
+            this.logActivity(
+              'Added resource category "' + this.newGroupName + '" in ' + this.activeCommittee.name,
+            );
+          },
+
+          deleteResourceGroup(index) {
+            if (confirm("Delete this resource category and all its links?")) {
+              this.activeCommittee.resourceGroups.splice(index, 1);
+              this.saveData();
+            }
+          },
+
+          moveResourceGroup(index, direction) {
+            const groups = this.activeCommittee.resourceGroups;
+            const targetIndex = index + direction;
+            if (targetIndex >= 0 && targetIndex < groups.length) {
+              const temp = groups[index];
+              groups[index] = groups[targetIndex];
+              groups[targetIndex] = temp;
+              this.saveData();
+            }
+          },
+
+          openAddLinkModal(group) {
+            this.targetResourceGroup = group;
+            this.newLink = { title: "", url: "https://", description: "" };
+            this.showAddLinkModal = true;
+          },
+
+          submitAddLink() {
+            if (!this.newLink.title.trim() || !this.targetResourceGroup) return;
+            if (!this.targetResourceGroup.links) this.targetResourceGroup.links = [];
+
+            this.targetResourceGroup.links.push({
+              id: generateId(),
+              title: this.newLink.title.trim(),
+              url: this.newLink.url.trim(),
+              description: this.newLink.description.trim(),
+            });
+            this.showAddLinkModal = false;
+            this.saveData();
+            this.logActivity(
+              'Added link "' + this.newLink.title + '" in ' + this.activeCommittee.name,
+            );
+          },
+
+          deleteResourceLink(group, index) {
+            group.links.splice(index, 1);
+            this.saveData();
+          },
+
+          moveResourceLink(group, index, direction) {
+            const links = group.links;
+            const targetIndex = index + direction;
+            if (targetIndex >= 0 && targetIndex < links.length) {
+              const temp = links[index];
+              links[index] = links[targetIndex];
+              links[targetIndex] = temp;
+              this.saveData();
+            }
+          },
+
+          // Committee & Meetings methods
+          submitAddCommittee() {
+            const newComm = {
+              id: generateId(),
+              name: this.newCommittee.name,
+              description: this.newCommittee.description,
+              members: [],
+              meetings: [],
+              goals: [],
+              resourceGroups: [],
+              roleExpectations: [],
+            };
+            this.committees.push(newComm);
+            this.newCommittee = { name: "", description: "" };
+            this.showAddCommitteeModal = false;
+            this.logActivity("Created committee: " + newComm.name);
+            this.viewCommittee(newComm.id);
+          },
+
+          createNewMeeting() {
+            if (!this.activeCommittee) return;
+            if (!this.activeCommittee.meetings) this.activeCommittee.meetings = [];
+            const today = new Date().toISOString().split("T")[0];
+            const meetingNumber = this.activeCommittee.meetings.length + 1;
+            const newMtgTitle = `Meeting #${meetingNumber}`;
+
+            this.activeCommittee.meetings.unshift({
+              id: generateId(),
+              title: newMtgTitle,
+              date: today,
+              status: "Scheduled",
+              agendaNotes: this.agendaTemplate,
+              actionItems: [],
+            });
+            this.logActivity(
+              'Created meeting "' + newMtgTitle + '" in ' + this.activeCommittee.name,
+            );
+          },
+
+          get filteredPersonnel() {
+            if (this.personnelFilter === "All") return this.personnel;
+            return this.personnel.filter((p) => p.type === this.personnelFilter);
+          },
+
+          get filteredCommittees() {
+            if (!this.committeeSearchQuery.trim()) return this.committees;
+            const q = this.committeeSearchQuery.toLowerCase();
+            return this.committees.filter(
+              (c) =>
+                c.name.toLowerCase().includes(q) ||
+                (c.description && c.description.toLowerCase().includes(q)),
+            );
+          },
+
+          deleteCommittee(id) {
+            if (confirm("Are you sure you want to delete this committee?")) {
+              const comm = this.committees.find((c) => c.id === id);
+              this.committees = this.committees.filter((c) => c.id !== id);
+              if (this.activeCommitteeId === id) this.currentView = "committees";
+              this.saveData();
+              if (comm) this.logActivity("Deleted committee: " + comm.name);
+            }
+          },
+
+          submitAddPerson() {
+            const p = { ...this.newPerson, id: generateId() };
+            this.personnel.push(p);
+            this.newPerson = { name: "", email: "", type: "Faculty", details: "" };
+            this.showAddPersonModal = false;
+            this.logActivity("Added personnel: " + p.name);
+          },
+
+          deletePerson(id) {
+            if (confirm("Are you sure? This will remove them from all committees.")) {
+              const person = this.personnel.find((p) => p.id === id);
+              this.personnel = this.personnel.filter((p) => p.id !== id);
+              this.committees.forEach((c) => {
+                if (c.members) c.members = c.members.filter((m) => m.personId !== id);
+                if (c.meetings) {
+                  c.meetings.forEach((mtg) => {
+                    if (mtg.actionItems) {
+                      mtg.actionItems.forEach((act) => {
+                        if (act.assigneeId === id) act.assigneeId = "";
+                      });
+                    }
+                  });
+                }
+              });
+              if (person) this.logActivity("Removed personnel: " + person.name);
+            }
+          },
+
+          getPersonName(id) {
+            const p = this.personnel.find((p) => p.id === id);
+            return p ? p.name : "";
+          },
+
+          getPersonType(id) {
+            const p = this.personnel.find((p) => p.id === id);
+            return p ? p.type : "";
+          },
+
+          addNewRole() {
+            if (this.newRoleName.trim() === "") return;
+            this.availableRoles.push({
+              id: generateId(),
+              name: this.newRoleName,
+              isDefault: false,
+            });
+            this.logActivity("Created new global role: " + this.newRoleName);
+            this.newRoleName = "";
+          },
+
+          removeRole(id) {
+            if (confirm("Remove this role? Members with this role will be unassigned.")) {
+              this.availableRoles = this.availableRoles.filter((r) => r.id !== id);
+              this.committees.forEach((c) => {
+                if (c.members) {
+                  c.members.forEach((m) => {
+                    if (m.roleId === id) m.roleId = "r2";
+                  });
+                }
+              });
+            }
+          },
+
+          viewCommittee(id) {
+            this.activeCommitteeId = id;
+            this.currentView = "committee_detail";
+            this.isEditingHeader = false;
+          },
+
+          get activeCommittee() {
+            const c = this.committees.find((c) => c.id === this.activeCommitteeId);
+            if (c) {
+              if (!c.resourceGroups) c.resourceGroups = [];
+              if (!c.roleExpectations) c.roleExpectations = [];
+              if (!c.meetings) c.meetings = [];
+              if (!c.goals) c.goals = [];
+              if (!c.members) c.members = [];
+            }
+            return c;
+          },
+
+          get availablePersonnelForActiveCommittee() {
+            if (!this.activeCommittee) return [];
+            const currentMemberIds = (this.activeCommittee.members || []).map((m) => m.personId);
+            let available = this.personnel.filter((p) => !currentMemberIds.includes(p.id));
+
+            if (this.memberSearchQuery) {
+              const q = this.memberSearchQuery.toLowerCase();
+              available = available.filter(
+                (p) => p.name.toLowerCase().includes(q) || p.details.toLowerCase().includes(q),
+              );
+            }
+            return available;
+          },
+
+          addMemberToCommittee(personId) {
+            if (this.activeCommittee) {
+              if (!this.activeCommittee.members) this.activeCommittee.members = [];
+              this.activeCommittee.members.push({
+                personId: personId,
+                roleId: "r2",
+              });
+              this.logActivity(
+                "Added member " + this.getPersonName(personId) + " to " + this.activeCommittee.name,
+              );
+            }
+          },
+
+          removeMemberFromCommittee(committeeId, personId) {
+            if (confirm("Remove member from committee?")) {
+              const cIndex = this.committees.findIndex((c) => c.id === committeeId);
+              if (cIndex > -1) {
+                this.committees[cIndex].members = this.committees[cIndex].members.filter(
+                  (m) => m.personId !== personId,
+                );
+              }
+            }
+          },
+
+          deleteMeeting(index) {
+            if (confirm("Delete this meeting record?")) {
+              this.activeCommittee.meetings.splice(index, 1);
+            }
+          },
+
+          addActionItem(meeting) {
+            if (!meeting.actionItems) meeting.actionItems = [];
+            meeting.actionItems.push({
+              id: generateId(),
+              task: "",
+              assigneeId: "",
+              priority: "Medium",
+              completed: false,
+            });
+          },
+
+          removeActionItem(meeting, index) {
+            meeting.actionItems.splice(index, 1);
+          },
+
+          addGoal() {
+            if (!this.activeCommittee) return;
+            if (!this.activeCommittee.goals) this.activeCommittee.goals = [];
+            this.activeCommittee.goals.unshift({
+              id: generateId(),
+              title: "",
+              targetDate: "",
+              completed: false,
+            });
+          },
+
+          removeGoal(index) {
+            this.activeCommittee.goals.splice(index, 1);
+          },
+
+          getTotalPendingActions() {
+            let count = 0;
+            this.committees.forEach((c) => {
+              if (c.meetings) {
+                c.meetings.forEach((m) => {
+                  if (m.actionItems) {
+                    count += m.actionItems.filter((a) => !a.completed).length;
+                  }
+                });
+              }
+            });
+            return count;
+          },
+        }));
+      });
+    </script>
+  </body>
+</html>

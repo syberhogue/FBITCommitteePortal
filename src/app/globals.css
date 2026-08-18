@@ -1,0 +1,119 @@
+@import "tailwindcss";
+
+@theme {
+  --color-indigo-50: #eef6fb;
+  --color-indigo-100: #dcecf7;
+  --color-indigo-200: #b9d9ee;
+  --color-indigo-500: #0077ca;
+  --color-indigo-600: #0077ca;
+  --color-indigo-700: #003c71;
+  --color-indigo-800: #005793;
+  --color-indigo-900: #00283c;
+  --color-indigo-950: #00283c;
+}
+
+:root {
+  color-scheme: light;
+  --brand-future-blue: #003c71;
+  --brand-simcoe-blue: #0077ca;
+  --brand-tech-tangerine: #e75d2a;
+  --brand-spirit-navy: #00283c;
+  --brand-dark-blue: #042a4b;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: #f8fafc;
+  color: #1e293b;
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+button,
+a,
+input,
+select,
+textarea {
+  outline-color: var(--brand-simcoe-blue);
+  outline-offset: 2px;
+}
+
+button:not(:disabled),
+[role="button"]:not([aria-disabled="true"]) {
+  cursor: pointer;
+}
+
+::selection {
+  background: var(--brand-simcoe-blue);
+  color: white;
+}
+
+.rich-text-editor p,
+.rich-text-view p {
+  margin: 0.45rem 0;
+}
+
+.rich-text-editor ul,
+.rich-text-view ul {
+  margin: 0.5rem 0;
+  list-style: disc;
+  padding-left: 1.5rem;
+}
+
+.rich-text-editor ol,
+.rich-text-view ol {
+  margin: 0.5rem 0;
+  list-style: decimal;
+  padding-left: 1.5rem;
+}
+
+.rich-text-editor blockquote,
+.rich-text-view blockquote {
+  margin: 0.6rem 0;
+  border-left: 4px solid var(--brand-simcoe-blue);
+  padding-left: 0.8rem;
+  color: #5b6770;
+}
+
+.rich-text-editor h2,
+.rich-text-view h2 {
+  margin: 0.75rem 0 0.35rem;
+  font-size: 1.45rem;
+  font-weight: 700;
+}
+
+.rich-text-editor h3,
+.rich-text-view h3 {
+  margin: 0.65rem 0 0.3rem;
+  font-size: 1.2rem;
+  font-weight: 700;
+}
+
+.rich-text-editor h4,
+.rich-text-view h4 {
+  margin: 0.55rem 0 0.25rem;
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.rich-text-editor code,
+.rich-text-view code {
+  border-radius: 0.25rem;
+  background: #f1f5f9;
+  padding: 0.1rem 0.25rem;
+}
+
+.rich-text-view {
+  margin-top: 0.5rem;
+  color: #334155;
+  font-size: 0.875rem;
+  line-height: 1.55;
+}
+
+.rich-text-view-compact {
+  font-size: 0.75rem;
+  line-height: 1.45;
+}
