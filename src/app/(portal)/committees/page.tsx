@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { requireActiveProfile, canManageAllCommittees } from "@/lib/auth";
 import { Card, PageHeader, inputClass } from "@/components/ui";
 import { SubmitButton } from "@/components/submit-button";
+import { CommitteeColorPicker } from "@/components/committee-color-picker";
 import { createCommittee } from "../portal-actions";
 import { currentTimestamp, formatDate } from "@/lib/utils";
 
@@ -20,7 +21,7 @@ export default async function CommitteesPage({
   const status = params.status === "archived" ? "archived" : "active";
   let query = supabase
     .from("committees")
-    .select("id, name, mandate, status, updated_at")
+    .select("id, name, mandate, status, updated_at, color")
     .eq("status", status)
     .order("name");
   if (params.q?.trim()) query = query.ilike("name", `%${params.q.trim()}%`);
@@ -83,50 +84,63 @@ export default async function CommitteesPage({
           </form>
           <div className="grid gap-5 md:grid-cols-2 2xl:grid-cols-3">
             {committees?.map((committee) => (
-              <Card
+              <Link
                 key={committee.id}
-                className="flex min-h-60 flex-col justify-between p-6 transition hover:-translate-y-0.5 hover:shadow-md"
+                href={`/committees/${committee.id}`}
+                className="group block rounded-2xl focus:outline-none focus:ring-4 focus:ring-[#0077CA]/25"
+                aria-label={`Open ${committee.name}`}
               >
-                <div>
-                  <span className="grid size-11 place-items-center rounded-xl bg-indigo-50 text-indigo-600">
-                    {committee.status === "archived" ? (
-                      <Archive className="size-5" />
-                    ) : (
-                      <Users className="size-5" />
-                    )}
-                  </span>
-                  <Link
-                    href={`/committees/${committee.id}`}
-                    className="mt-4 block text-lg font-bold text-slate-950 hover:text-indigo-700"
-                  >
-                    {committee.name}
-                  </Link>
-                  <p className="mt-2 line-clamp-3 text-sm text-slate-500">
-                    {committee.mandate || "No mandate recorded."}
-                  </p>
-                </div>
-                <div className="mt-5 flex gap-4 border-t border-slate-100 pt-4 text-xs text-slate-500">
-                  <span className="flex items-center gap-1">
-                    <Users className="size-3.5" />
-                    {memberCounts.get(committee.id) ?? 0} members
-                  </span>
-                  <span className="flex items-center gap-1">
-                    <CalendarDays className="size-3.5" />
-                    {meetingCounts.get(committee.id) ?? 0} meetings
-                  </span>
-                </div>
-                <div className="mt-3 rounded-lg bg-indigo-50 p-3 text-xs">
-                  <p className="font-bold uppercase tracking-wide text-[#003C71]">Next meeting</p>
-                  {nextMeetingByCommittee.get(committee.id) ? (
-                    <p className="mt-1 font-semibold text-slate-700">
-                      {nextMeetingByCommittee.get(committee.id)!.title} ·{" "}
-                      {formatDate(nextMeetingByCommittee.get(committee.id)!.starts_at, true)}
+                <Card
+                  className="flex min-h-60 flex-col justify-between overflow-hidden p-6 transition group-hover:-translate-y-0.5 group-hover:shadow-md"
+                  style={{ borderTopColor: committee.color, borderTopWidth: 6 }}
+                >
+                  <div>
+                    <span
+                      className="grid size-11 place-items-center rounded-xl text-white"
+                      style={{ backgroundColor: committee.color }}
+                    >
+                      {committee.status === "archived" ? (
+                        <Archive className="size-5" />
+                      ) : (
+                        <Users className="size-5" />
+                      )}
+                    </span>
+                    <h2
+                      className="mt-4 text-lg font-bold transition group-hover:underline"
+                      style={{ color: committee.color }}
+                    >
+                      {committee.name}
+                    </h2>
+                    <p className="mt-2 line-clamp-3 text-sm text-slate-500">
+                      {committee.mandate || "No mandate recorded."}
                     </p>
-                  ) : (
-                    <p className="mt-1 text-slate-500">Not yet scheduled</p>
-                  )}
-                </div>
-              </Card>
+                  </div>
+                  <div className="mt-5 flex gap-4 border-t border-slate-100 pt-4 text-xs text-slate-500">
+                    <span className="flex items-center gap-1">
+                      <Users className="size-3.5" />
+                      {memberCounts.get(committee.id) ?? 0} members
+                    </span>
+                    <span className="flex items-center gap-1">
+                      <CalendarDays className="size-3.5" />
+                      {meetingCounts.get(committee.id) ?? 0} meetings
+                    </span>
+                  </div>
+                  <div
+                    className="mt-3 rounded-lg p-3 text-xs text-white"
+                    style={{ backgroundColor: committee.color }}
+                  >
+                    <p className="font-bold uppercase tracking-wide">Next meeting</p>
+                    {nextMeetingByCommittee.get(committee.id) ? (
+                      <p className="mt-1 font-semibold">
+                        {nextMeetingByCommittee.get(committee.id)!.title} ·{" "}
+                        {formatDate(nextMeetingByCommittee.get(committee.id)!.starts_at, true)}
+                      </p>
+                    ) : (
+                      <p className="mt-1 text-white/75">Not yet scheduled</p>
+                    )}
+                  </div>
+                </Card>
+              </Link>
             ))}
           </div>
           {!committees?.length && (
@@ -154,6 +168,7 @@ export default async function CommitteesPage({
                   className={`${inputClass} mt-1`}
                 />
               </label>
+              <CommitteeColorPicker />
               <SubmitButton className="w-full">Create committee</SubmitButton>
             </form>
           </Card>

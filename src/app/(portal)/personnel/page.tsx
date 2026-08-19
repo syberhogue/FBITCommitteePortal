@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { Mail, Search } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { Badge, Card, PageHeader, inputClass } from "@/components/ui";
@@ -20,7 +21,34 @@ export default async function PersonnelPage({
     query = query.or(
       `full_name.ilike.%${params.q.trim()}%,email.ilike.%${params.q.trim()}%,department.ilike.%${params.q.trim()}%`,
     );
-  const { data: people = [] } = await query;
+  const [peopleResult, membershipsResult, rolesResult, committeesResult] = await Promise.all([
+    query,
+    supabase.from("committee_members").select("profile_id, committee_id, role_id"),
+    supabase.from("committee_roles").select("id, name, access_level"),
+    supabase.from("committees").select("id, name, color").eq("status", "active"),
+  ]);
+  const people = peopleResult.data ?? [];
+  const rolesById = new Map((rolesResult.data ?? []).map((role) => [role.id, role]));
+  const committeesById = new Map(
+    (committeesResult.data ?? []).map((committee) => [committee.id, committee]),
+  );
+  const assignmentsByPerson = new Map<
+    string,
+    { committeeId: string; committeeName: string; roleName: string; accessLevel: string }[]
+  >();
+  membershipsResult.data?.forEach((membership) => {
+    const role = rolesById.get(membership.role_id);
+    const committee = committeesById.get(membership.committee_id);
+    if (!role || !committee) return;
+    const assignments = assignmentsByPerson.get(membership.profile_id) ?? [];
+    assignments.push({
+      committeeId: committee.id,
+      committeeName: committee.name,
+      roleName: role.name,
+      accessLevel: role.access_level,
+    });
+    assignmentsByPerson.set(membership.profile_id, assignments);
+  });
   return (
     <>
       <PageHeader
@@ -64,6 +92,27 @@ export default async function PersonnelPage({
                   {[person.title, person.department].filter(Boolean).join(" · ") ||
                     "No department or title"}
                 </p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {(assignmentsByPerson.get(person.id) ?? []).map((assignment) => (
+                    <Link
+                      key={assignment.committeeId}
+                      href={`/committees/${assignment.committeeId}`}
+                      className={`rounded-full px-2.5 py-1 text-xs font-semibold hover:underline ${
+                        assignment.accessLevel === "chair"
+                          ? "bg-[#003C71] text-white"
+                          : assignment.accessLevel === "staff"
+                            ? "border border-[#0077CA] bg-[#d9effc] text-[#003C71]"
+                            : "bg-[#E75D2A] text-[#00283C]"
+                      }`}
+                      title={`${assignment.roleName} access`}
+                    >
+                      {assignment.committeeName} · {assignment.accessLevel}
+                    </Link>
+                  ))}
+                  {!assignmentsByPerson.get(person.id)?.length && (
+                    <span className="text-xs italic text-slate-400">No committee assignments</span>
+                  )}
+                </div>
               </div>
               <Badge
                 tone={

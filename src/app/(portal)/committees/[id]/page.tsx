@@ -18,19 +18,14 @@ import {
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { requireActiveProfile, canManageAllCommittees } from "@/lib/auth";
-import {
-  Badge,
-  Card,
-  PageHeader,
-  buttonClass,
-  inputClass,
-  secondaryButtonClass,
-} from "@/components/ui";
+import { Badge, Card, buttonClass, inputClass, secondaryButtonClass } from "@/components/ui";
 import { SubmitButton } from "@/components/submit-button";
 import { ConfirmSubmit } from "@/components/confirm-submit";
 import { MeetingCard } from "@/components/meeting-card";
 import { MeetingFocus } from "@/components/meeting-focus";
+import { CommitteeColorPicker } from "@/components/committee-color-picker";
 import { RichTextEditor } from "@/components/rich-text-editor";
+import { AgendaItemBuilder } from "@/components/agenda-item-builder";
 import { currentTimestamp, formatDate } from "@/lib/utils";
 import {
   addMember,
@@ -47,10 +42,11 @@ import {
   setCommitteeStatus,
   toggleGoal,
   updateCommittee,
+  updateCommitteeColor,
   updateMemberRole,
 } from "../../portal-actions";
 
-const tabs = ["members", "meetings", "goals", "expectations", "resources"] as const;
+const tabs = ["meetings", "goals", "expectations", "members", "resources"] as const;
 type Tab = (typeof tabs)[number];
 const meetingViews = ["upcoming", "in-progress", "plan", "finalize", "history"] as const;
 type MeetingView = (typeof meetingViews)[number];
@@ -68,7 +64,7 @@ export default async function CommitteeDetailPage({
     requireActiveProfile(),
     createClient(),
   ]);
-  const tab: Tab = tabs.includes(query.tab as Tab) ? (query.tab as Tab) : "members";
+  const tab: Tab = tabs.includes(query.tab as Tab) ? (query.tab as Tab) : "meetings";
   const meetingView: MeetingView = meetingViews.includes(query.meetingView as MeetingView)
     ? (query.meetingView as MeetingView)
     : "upcoming";
@@ -85,8 +81,11 @@ export default async function CommitteeDetailPage({
     expectationsResult,
     groupsResult,
     linksResult,
-    templateResult,
+    templateItemsResult,
+    templateAssignmentsResult,
     attendanceResult,
+    meetingAgendaItemsResult,
+    meetingAgendaAssignmentsResult,
   ] = await Promise.all([
     supabase.from("committee_roles").select("*").order("sort_order"),
     supabase
@@ -106,8 +105,11 @@ export default async function CommitteeDetailPage({
     supabase.from("role_expectations").select("*").eq("committee_id", id),
     supabase.from("resource_groups").select("*").eq("committee_id", id).order("sort_order"),
     supabase.from("resource_links").select("*").order("sort_order"),
-    supabase.from("system_settings").select("value").eq("key", "agenda_template").single(),
+    supabase.from("agenda_template_items").select("*").order("sort_order"),
+    supabase.from("agenda_template_item_assignees").select("*"),
     supabase.from("meeting_attendance").select("*"),
+    supabase.from("meeting_agenda_items").select("*").order("sort_order"),
+    supabase.from("meeting_agenda_item_assignees").select("*"),
   ]);
   const roles = rolesResult.data ?? [];
   const people = peopleResult.data ?? [];
@@ -123,6 +125,13 @@ export default async function CommitteeDetailPage({
   const attendance = (attendanceResult.data ?? []).filter((record) =>
     meetingIds.has(record.meeting_id),
   );
+  const meetingAgendaItems = (meetingAgendaItemsResult.data ?? []).filter((item) =>
+    meetingIds.has(item.meeting_id),
+  );
+  const agendaItemIds = new Set(meetingAgendaItems.map((item) => item.id));
+  const meetingAgendaAssignments = (meetingAgendaAssignmentsResult.data ?? []).filter(
+    (assignment) => agendaItemIds.has(assignment.agenda_item_id),
+  );
   const peopleById = new Map(people.map((person) => [person.id, person]));
   const rolesById = new Map(roles.map((role) => [role.id, role]));
   const ownMembership = memberships.find((membership) => membership.profile_id === profile.id);
@@ -136,10 +145,25 @@ export default async function CommitteeDetailPage({
   const canArchiveMeetings = managesAll || canPlanMeetings;
   const canDeleteMeetings = profile.global_role === "admin";
   const canEditHeader = managesAll || ownAccess === "chair";
+  const canChooseColor =
+    profile.global_role === "admin" || ownAccess === "chair" || ownAccess === "staff";
   const assignedIds = new Set(memberships.map((membership) => membership.profile_id));
   const availablePeople = people.filter((person) => !assignedIds.has(person.id));
-  const agendaTemplate =
-    typeof templateResult.data?.value === "string" ? templateResult.data.value : "";
+  const templateItems = templateItemsResult.data ?? [];
+  const templateAssignments = templateAssignmentsResult.data ?? [];
+  const templateDraft = templateItems.map((item) => ({
+    id: item.id,
+    title: item.title,
+    assigneeIds: templateAssignments
+      .filter((assignment) => assignment.agenda_item_id === item.id)
+      .map((assignment) => assignment.profile_id),
+  }));
+  const agendaItemsFor = (meetingId: string) =>
+    meetingAgendaItems.filter((item) => item.meeting_id === meetingId);
+  const agendaAssignmentsFor = (meetingId: string) => {
+    const ids = new Set(agendaItemsFor(meetingId).map((item) => item.id));
+    return meetingAgendaAssignments.filter((assignment) => ids.has(assignment.agenda_item_id));
+  };
   const now = currentTimestamp();
   const activeMeetings = meetings.filter((meeting) => !meeting.archived_at);
   const plannedMeetings = activeMeetings.filter((meeting) => meeting.status === "planned");
@@ -184,33 +208,56 @@ export default async function CommitteeDetailPage({
           ← Committees
         </Link>
       </div>
-      <Card className="p-6">
-        {canEditHeader ? (
-          <form action={updateCommittee} className="space-y-3">
-            <input type="hidden" name="id" value={id} />
-            <input
-              name="name"
-              defaultValue={committee.name}
-              required
-              className="w-full border-0 bg-transparent p-0 text-3xl font-bold tracking-tight text-slate-950 focus:ring-0"
-            />
-            <textarea
-              name="mandate"
-              defaultValue={committee.mandate}
-              rows={3}
-              className={inputClass}
-              placeholder="Committee mandate"
-            />
-            <div className="flex flex-wrap items-center gap-3">
-              <SubmitButton>Save committee</SubmitButton>
-              <Badge tone={committee.status === "active" ? "green" : "slate"}>
-                {committee.status}
-              </Badge>
+      <Card
+        className="overflow-hidden"
+        style={{ borderTopColor: committee.color, borderTopWidth: 6 }}
+      >
+        <div className="p-6" style={{ backgroundColor: `${committee.color}12` }}>
+          {canEditHeader ? (
+            <form action={updateCommittee} className="space-y-3">
+              <input type="hidden" name="id" value={id} />
+              <input
+                name="name"
+                defaultValue={committee.name}
+                required
+                className="w-full border-0 bg-transparent p-0 text-3xl font-bold tracking-tight focus:ring-0"
+                style={{ color: committee.color }}
+              />
+              <textarea
+                name="mandate"
+                defaultValue={committee.mandate}
+                rows={3}
+                className={inputClass}
+                placeholder="Committee mandate"
+              />
+              <div className="flex flex-wrap items-center gap-3">
+                <SubmitButton>Save committee</SubmitButton>
+                <Badge tone={committee.status === "active" ? "green" : "slate"}>
+                  {committee.status}
+                </Badge>
+              </div>
+            </form>
+          ) : (
+            <div>
+              <h1 className="text-3xl font-bold tracking-tight" style={{ color: committee.color }}>
+                {committee.name}
+              </h1>
+              <div className="mt-3 rounded-xl border border-slate-300 bg-slate-100 p-4 text-sm text-slate-700">
+                {committee.mandate || "No committee mandate has been recorded."}
+              </div>
             </div>
-          </form>
-        ) : (
-          <PageHeader title={committee.name} description={committee.mandate} />
-        )}
+          )}
+          {canChooseColor && (
+            <form
+              action={updateCommitteeColor}
+              className="mt-5 flex flex-wrap items-end gap-4 border-t border-slate-200 pt-4"
+            >
+              <input type="hidden" name="id" value={id} />
+              <CommitteeColorPicker defaultValue={committee.color} compact />
+              <SubmitButton>Apply colour</SubmitButton>
+            </form>
+          )}
+        </div>
       </Card>
       {query.error && (
         <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-700">
@@ -225,7 +272,10 @@ export default async function CommitteeDetailPage({
           <Link
             key={item}
             href={`/committees/${id}?tab=${item}`}
-            className={`whitespace-nowrap border-b-2 px-4 py-3 text-sm font-semibold capitalize ${tab === item ? "border-indigo-600 text-indigo-700" : "border-transparent text-slate-500 hover:text-slate-800"}`}
+            className={`whitespace-nowrap border-b-2 px-4 py-3 text-sm font-semibold capitalize ${tab === item ? "font-bold" : "border-transparent text-slate-500 hover:text-slate-800"}`}
+            style={
+              tab === item ? { borderColor: committee.color, color: committee.color } : undefined
+            }
           >
             {item}
           </Link>
@@ -235,17 +285,17 @@ export default async function CommitteeDetailPage({
       {tab === "members" && (
         <div className="grid gap-6 xl:grid-cols-[1fr_22rem]">
           <Card className="overflow-hidden">
-            <div className="border-b border-slate-100 p-5">
+            <div className="border-b border-slate-300 bg-slate-800 p-5 text-white">
               <h2 className="font-bold">Committee roster</h2>
             </div>
-            <div className="divide-y divide-slate-100">
-              {memberships.map((membership) => {
+            <div className="divide-y divide-slate-200">
+              {memberships.map((membership, membershipIndex) => {
                 const person = peopleById.get(membership.profile_id);
                 const role = rolesById.get(membership.role_id);
                 return (
                   <div
                     key={membership.id}
-                    className="flex flex-col gap-3 p-5 sm:flex-row sm:items-center"
+                    className={`flex flex-col gap-3 p-5 sm:flex-row sm:items-center ${membershipIndex % 2 === 0 ? "bg-white" : "bg-slate-100"}`}
                   >
                     <div className="min-w-0 flex-1">
                       <p className="font-semibold">{person?.full_name ?? "Unknown user"}</p>
@@ -377,11 +427,12 @@ export default async function CommitteeDetailPage({
                     aria-current={selected ? "page" : undefined}
                     className={`flex items-center gap-2 rounded-xl px-3 py-3 text-sm font-semibold transition ${
                       selected
-                        ? "bg-[#003C71] text-white"
+                        ? "text-white"
                         : item.restricted
                           ? "bg-slate-100 text-slate-400 hover:bg-slate-200"
                           : "text-slate-700 hover:bg-[#eef6fb] hover:text-[#003C71]"
                     }`}
+                    style={selected ? { backgroundColor: committee.color } : undefined}
                   >
                     <Icon className="size-4" />
                     <span className="flex-1">{item.label}</span>
@@ -418,6 +469,8 @@ export default async function CommitteeDetailPage({
                       attendance={attendance.filter(
                         (record) => record.meeting_id === nextMeeting.id,
                       )}
+                      agendaItems={agendaItemsFor(nextMeeting.id)}
+                      agendaAssignments={agendaAssignmentsFor(nextMeeting.id)}
                       committeeId={id}
                       memberships={memberships}
                       people={people}
@@ -427,6 +480,8 @@ export default async function CommitteeDetailPage({
                       canArchive={canArchiveMeetings}
                       canDelete={canDeleteMeetings}
                       meetingView="upcoming"
+                      upcomingTone="next"
+                      activeMeeting={inProgressMeetings[0] ?? null}
                     />
                   ) : (
                     <Card className="border-dashed p-6 text-sm text-slate-500">
@@ -444,6 +499,8 @@ export default async function CommitteeDetailPage({
                         meeting={meeting}
                         actions={actions.filter((action) => action.meeting_id === meeting.id)}
                         attendance={attendance.filter((record) => record.meeting_id === meeting.id)}
+                        agendaItems={agendaItemsFor(meeting.id)}
+                        agendaAssignments={agendaAssignmentsFor(meeting.id)}
                         committeeId={id}
                         memberships={memberships}
                         people={people}
@@ -453,6 +510,8 @@ export default async function CommitteeDetailPage({
                         canArchive={canArchiveMeetings}
                         canDelete={canDeleteMeetings}
                         meetingView="upcoming"
+                        upcomingTone="other"
+                        activeMeeting={inProgressMeetings[0] ?? null}
                       />
                     ))}
                   </div>
@@ -485,6 +544,8 @@ export default async function CommitteeDetailPage({
                         meeting={meeting}
                         actions={actions.filter((action) => action.meeting_id === meeting.id)}
                         attendance={attendance.filter((record) => record.meeting_id === meeting.id)}
+                        agendaItems={agendaItemsFor(meeting.id)}
+                        agendaAssignments={agendaAssignmentsFor(meeting.id)}
                         committeeId={id}
                         memberships={memberships}
                         people={people}
@@ -534,14 +595,11 @@ export default async function CommitteeDetailPage({
                           className={inputClass}
                         />
                       </div>
-                      <div className="grid gap-4 xl:grid-cols-2">
-                        <RichTextEditor
-                          name="agenda"
-                          label="Proposed agenda"
-                          initialValue={agendaTemplate}
-                        />
-                        <RichTextEditor name="goals" label="Meeting goals" initialValue="" />
+                      <div>
+                        <h3 className="mb-2 text-sm font-bold text-slate-800">Agenda items</h3>
+                        <AgendaItemBuilder initialItems={templateDraft} people={people} />
                       </div>
+                      <RichTextEditor name="goals" label="Meeting goals" initialValue="" />
                       <SubmitButton>Submit plan for Chair</SubmitButton>
                     </form>
                   </>
@@ -579,6 +637,8 @@ export default async function CommitteeDetailPage({
                     meeting={meeting}
                     actions={[]}
                     attendance={[]}
+                    agendaItems={agendaItemsFor(meeting.id)}
+                    agendaAssignments={agendaAssignmentsFor(meeting.id)}
                     committeeId={id}
                     memberships={memberships}
                     people={people}
@@ -634,6 +694,8 @@ export default async function CommitteeDetailPage({
                     meeting={meeting}
                     actions={actions.filter((action) => action.meeting_id === meeting.id)}
                     attendance={attendance.filter((record) => record.meeting_id === meeting.id)}
+                    agendaItems={agendaItemsFor(meeting.id)}
+                    agendaAssignments={agendaAssignmentsFor(meeting.id)}
                     committeeId={id}
                     memberships={memberships}
                     people={people}
@@ -658,19 +720,30 @@ export default async function CommitteeDetailPage({
 
       {tab === "goals" && (
         <div className="grid gap-6 xl:grid-cols-[1fr_22rem]">
-          <Card className="divide-y divide-slate-100">
+          <Card
+            className={`divide-y ${canEditContent ? "divide-slate-100" : "divide-slate-300 bg-slate-100"}`}
+          >
             {goals.map((goal) => (
-              <div key={goal.id} className="flex items-center gap-3 p-5">
-                <form action={toggleGoal}>
-                  <input type="hidden" name="id" value={goal.id} />
-                  <input type="hidden" name="committee_id" value={id} />
-                  <input type="hidden" name="completed" value={String(!goal.completed)} />
-                  <button
-                    disabled={!canEditContent}
-                    aria-label="Toggle goal"
-                    className={`size-5 rounded border-2 ${goal.completed ? "border-emerald-500 bg-emerald-500" : "border-slate-300"}`}
+              <div
+                key={goal.id}
+                className={`flex items-center gap-3 p-5 ${canEditContent ? "bg-white" : "bg-slate-100 text-slate-700"}`}
+              >
+                {canEditContent ? (
+                  <form action={toggleGoal}>
+                    <input type="hidden" name="id" value={goal.id} />
+                    <input type="hidden" name="committee_id" value={id} />
+                    <input type="hidden" name="completed" value={String(!goal.completed)} />
+                    <button
+                      aria-label="Toggle goal"
+                      className={`size-5 rounded border-2 ${goal.completed ? "border-emerald-500 bg-emerald-500" : "border-slate-300"}`}
+                    />
+                  </form>
+                ) : (
+                  <span
+                    aria-hidden="true"
+                    className={`size-5 rounded border-2 ${goal.completed ? "border-emerald-500 bg-emerald-500" : "border-slate-400 bg-slate-200"}`}
                   />
-                </form>
+                )}
                 <div className="flex-1">
                   <p className={goal.completed ? "text-slate-400 line-through" : "font-medium"}>
                     {goal.title}
@@ -718,26 +791,29 @@ export default async function CommitteeDetailPage({
           {roles.map((role) => {
             const expectation = expectations.find((item) => item.role_id === role.id);
             return (
-              <Card key={role.id} className="p-5">
+              <Card key={role.id} className={`p-5 ${canManageRoster ? "" : "bg-slate-100"}`}>
                 <div className="flex items-center justify-between">
                   <h2 className="font-bold">{role.name}</h2>
                   <Badge tone="indigo">{role.access_level}</Badge>
                 </div>
-                <form action={saveExpectation} className="mt-4">
-                  <input type="hidden" name="committee_id" value={id} />
-                  <input type="hidden" name="role_id" value={role.id} />
-                  <textarea
-                    name="expectation_text"
-                    readOnly={!canManageRoster}
-                    defaultValue={expectation?.expectation_text ?? ""}
-                    rows={6}
-                    className={inputClass}
-                    placeholder="Define responsibilities and operating expectations…"
-                  />
-                  {canManageRoster && (
+                {canManageRoster ? (
+                  <form action={saveExpectation} className="mt-4">
+                    <input type="hidden" name="committee_id" value={id} />
+                    <input type="hidden" name="role_id" value={role.id} />
+                    <textarea
+                      name="expectation_text"
+                      defaultValue={expectation?.expectation_text ?? ""}
+                      rows={6}
+                      className={inputClass}
+                      placeholder="Define responsibilities and operating expectations…"
+                    />
                     <SubmitButton className="mt-3">Save expectation</SubmitButton>
-                  )}
-                </form>
+                  </form>
+                ) : (
+                  <div className="mt-4 min-h-36 whitespace-pre-wrap rounded-xl border border-slate-300 bg-slate-200 p-4 text-sm text-slate-700">
+                    {expectation?.expectation_text || "No expectations have been recorded."}
+                  </div>
+                )}
               </Card>
             );
           })}

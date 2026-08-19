@@ -1,8 +1,11 @@
 import { cn } from "@/lib/utils";
 
-export function Card({ children, className }: { children: React.ReactNode; className?: string }) {
+export function Card({ children, className, ...props }: React.ComponentPropsWithoutRef<"section">) {
   return (
-    <section className={cn("rounded-2xl border border-slate-200 bg-white shadow-sm", className)}>
+    <section
+      className={cn("rounded-2xl border border-slate-200 bg-white shadow-sm", className)}
+      {...props}
+    >
       {children}
     </section>
   );

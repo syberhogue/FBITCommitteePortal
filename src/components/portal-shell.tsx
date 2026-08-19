@@ -9,14 +9,15 @@ const navigation = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/committees", label: "Committees", icon: BarChart3 },
   { href: "/personnel", label: "Personnel", icon: Users },
-  { href: "/settings", label: "Settings", icon: Settings },
 ];
 
 export function PortalShell({
   profile,
+  canAccessSettings,
   children,
 }: {
   profile: Profile;
+  canAccessSettings: boolean;
   children: React.ReactNode;
 }) {
   return (
@@ -58,6 +59,14 @@ export function PortalShell({
               <Icon className="size-4" aria-hidden /> {label}
             </Link>
           ))}
+          {canAccessSettings && (
+            <Link
+              href="/settings"
+              className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium hover:bg-[#005793]"
+            >
+              <Settings className="size-4" aria-hidden /> Settings
+            </Link>
+          )}
           {profile.global_role === "admin" && (
             <Link
               href="/admin"

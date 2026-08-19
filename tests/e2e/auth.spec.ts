@@ -13,6 +13,20 @@ async function signOut(page: Page) {
   await expect(page).toHaveURL(/\/signin/);
 }
 
+async function completeAbandonedGeneratedMeetings(page: Page, committeeUrl: string) {
+  await page.goto(`${committeeUrl}&meetingView=in-progress`);
+  const generatedTitle = page.locator(
+    'input[name="title"][value^="Governance workflow "], input[name="title"][value^="Completion workflow "]',
+  );
+  for (let attempt = 0; attempt < 20 && (await generatedTitle.count()) > 0; attempt += 1) {
+    const before = await generatedTitle.count();
+    const card = page.locator("section").filter({ has: generatedTitle.first() }).first();
+    page.once("dialog", (dialog) => dialog.accept());
+    await card.getByRole("button", { name: "Complete and lock" }).click();
+    await expect(generatedTitle).toHaveCount(before - 1);
+  }
+}
+
 test("sign-in screen is accessible", async ({ page }) => {
   await page.goto("/signin");
   await expect(page.getByRole("heading", { name: "Sign in" })).toBeVisible();
@@ -22,15 +36,19 @@ test("sign-in screen is accessible", async ({ page }) => {
 
 test("local administrator can reach the admin dashboard", async ({ page }) => {
   await signIn(page, "admin@fbit.test");
-  await page.getByRole("link", { name: "Admin" }).click();
-  await expect(page.getByRole("heading", { name: "Administration" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Admin" })).toBeVisible();
+  await page.goto("/admin");
+  await expect(page.getByRole("heading", { name: "Administration" })).toBeVisible({
+    timeout: 15_000,
+  });
 });
 
 test("meeting plan moves through Chair approval, attendance, locking, unlock, and archive", async ({
   page,
 }) => {
-  test.setTimeout(60_000);
+  test.setTimeout(90_000);
   const meetingTitle = `Governance workflow ${Date.now()}`;
+  const agendaTitle = "Approve the annual governance plan";
   const committeeUrl = "/committees/10000000-0000-0000-0000-000000000001?tab=meetings";
 
   await signIn(page, "staff@fbit.test");
@@ -40,9 +58,10 @@ test("meeting plan moves through Chair approval, attendance, locking, unlock, an
   const planner = page.getByRole("heading", { name: "Plan a meeting" }).locator("xpath=..");
   await planner.getByPlaceholder("Meeting title").fill(meetingTitle);
   await planner.locator('input[name="starts_at"]').fill("2026-08-20T10:00");
+  await planner.getByRole("textbox", { name: "Agenda item 1", exact: true }).fill(agendaTitle);
   await planner
-    .locator('[contenteditable="true"][aria-label="Proposed agenda"]')
-    .pressSequentially("Approve the annual governance plan");
+    .getByLabel("Assigned personnel for agenda item 1")
+    .selectOption(["00000000-0000-0000-0000-000000000003", "00000000-0000-0000-0000-000000000005"]);
   await planner
     .locator('[contenteditable="true"][aria-label="Meeting goals"]')
     .pressSequentially("Reach agreement on owners and dates");
@@ -63,20 +82,26 @@ test("meeting plan moves through Chair approval, attendance, locking, unlock, an
     .filter({ has: page.locator(`input[name="title"][value="${meetingTitle}"]`) });
   await planCard.getByRole("button", { name: "Finalize and schedule" }).click();
 
-  const nextMeetingSection = page
-    .getByRole("heading", { name: "Next Meeting" })
-    .locator("xpath=..");
-  await expect(nextMeetingSection).toContainText(meetingTitle);
-  await expect(nextMeetingSection.getByText("Scheduled", { exact: true })).toBeVisible();
-  const scheduledCard = nextMeetingSection.locator("section").filter({ hasText: meetingTitle });
+  let scheduledCard = page
+    .locator("section")
+    .filter({ has: page.getByRole("heading", { name: meetingTitle, exact: true }) })
+    .filter({ has: page.locator("details") });
+  await expect(scheduledCard.getByText("Scheduled", { exact: true })).toBeVisible();
   await scheduledCard.locator("summary").click();
-  await expect(scheduledCard.getByText("Approve the annual governance plan")).toBeVisible();
+  await expect(
+    scheduledCard.getByText(`${agendaTitle} (Casey Chair, Morgan Member)`),
+  ).toBeVisible();
   await expect(scheduledCard.getByText("Meeting notes / minutes", { exact: true })).toBeVisible();
 
   await signOut(page);
   await signIn(page, "member@fbit.test");
-  await expect(page.getByRole("heading", { name: "Your scheduled meetings" })).toBeVisible();
-  await expect(page.getByText(meetingTitle, { exact: true })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Settings" })).toHaveCount(0);
+  await page.goto("/settings");
+  await expect(page).toHaveURL(/\/dashboard\?error=Settings/);
+  const scheduledMeetings = page
+    .getByRole("heading", { name: "Your scheduled meetings" })
+    .locator("xpath=..");
+  await expect(scheduledMeetings.getByText(meetingTitle, { exact: true })).toBeVisible();
   await page.goto(committeeUrl);
   await expect(page.getByText("Read only for your role", { exact: true }).first()).toBeVisible();
   await page.getByRole("link", { name: "Plan", exact: true }).click();
@@ -85,15 +110,21 @@ test("meeting plan moves through Chair approval, attendance, locking, unlock, an
 
   await signOut(page);
   await signIn(page, "chair@fbit.test");
+  await completeAbandonedGeneratedMeetings(page, committeeUrl);
   await page.goto(committeeUrl);
-  await page
-    .getByRole("heading", { name: "Next Meeting" })
-    .locator("xpath=..")
-    .getByRole("button", { name: "Start meeting" })
-    .click();
+  scheduledCard = page
+    .locator("section")
+    .filter({ has: page.getByRole("heading", { name: meetingTitle, exact: true }) })
+    .filter({ has: page.locator("details") });
+  await scheduledCard.getByRole("button", { name: "Start meeting" }).click();
   await expect(page).toHaveURL(/meetingView=in-progress&focus=.*#meeting-/);
   await expect(page.getByRole("heading", { name: "Meetings in progress" })).toBeVisible();
   await expect(page.getByRole("link", { name: /^In Progress [1-9]\d*$/ })).toBeVisible();
+
+  await page.getByRole("link", { name: /^Upcoming/ }).click();
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.getByRole("button", { name: "Finish current meeting first" }).first().click();
+  await expect(page).toHaveURL(/meetingView=in-progress&focus=.*#meeting-/);
 
   let activeMeeting = page
     .locator("section")
@@ -101,8 +132,13 @@ test("meeting plan moves through Chair approval, attendance, locking, unlock, an
   await expect(activeMeeting).toBeInViewport();
   await expect(activeMeeting.getByText("Meeting has started", { exact: true })).toBeVisible();
   await expect(activeMeeting.getByText("in progress", { exact: true })).toBeVisible();
-  await activeMeeting.getByLabel("Minutes").pressSequentially("The governance plan was approved.");
-  await activeMeeting.getByRole("button", { name: "Save meeting notes" }).click();
+  await activeMeeting
+    .getByLabel("Minutes", { exact: true })
+    .pressSequentially("The governance plan was approved.");
+  await activeMeeting.getByLabel("Minutes", { exact: true }).press("End");
+  await activeMeeting.getByRole("button", { name: `Check agenda item 1: ${agendaTitle}` }).click();
+  await expect(activeMeeting.getByLabel("Minutes", { exact: true })).toContainText("Agenda 1:");
+  await activeMeeting.getByRole("button", { name: "Save meeting notes and agenda" }).click();
 
   activeMeeting = page
     .locator("section")
@@ -116,6 +152,9 @@ test("meeting plan moves through Chair approval, attendance, locking, unlock, an
     .filter({ has: page.locator(`input[name="title"][value="${meetingTitle}"]`) });
   page.once("dialog", (dialog) => dialog.accept());
   await activeMeeting.getByRole("button", { name: "Complete and lock" }).click();
+  await expect(page).toHaveURL(/meetingView=in-progress/);
+  await expect(page.locator(`input[name="title"][value="${meetingTitle}"]`)).toHaveCount(0);
+  await page.getByRole("link", { name: /^History/ }).click();
   let completedCard = page
     .locator("section")
     .filter({ has: page.locator("details") })
@@ -140,6 +179,10 @@ test("meeting plan moves through Chair approval, attendance, locking, unlock, an
   await activeMeeting.getByRole("button", { name: /Mark absent: Morgan Member/ }).click();
   page.once("dialog", (dialog) => dialog.accept());
   await activeMeeting.getByRole("button", { name: "Complete and lock" }).click();
+
+  await expect(page).toHaveURL(/meetingView=in-progress/);
+  await expect(page.locator(`input[name="title"][value="${meetingTitle}"]`)).toHaveCount(0);
+  await page.getByRole("link", { name: /^History/ }).click();
 
   completedCard = page
     .locator("section")

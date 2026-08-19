@@ -70,18 +70,20 @@ where id = '00000000-0000-0000-0000-000000000004';
 update public.profiles set status = 'suspended'
 where id = '00000000-0000-0000-0000-000000000008';
 
-insert into public.committees (id, name, mandate, created_by) values
+insert into public.committees (id, name, mandate, created_by, color) values
   (
     '10000000-0000-0000-0000-000000000001',
     'Curriculum Review Committee',
     'Evaluate and approve course proposals, program changes, and degree requirements.',
-    '00000000-0000-0000-0000-000000000001'
+    '00000000-0000-0000-0000-000000000001',
+    '#003C71'
   ),
   (
     '10000000-0000-0000-0000-000000000002',
     'Faculty Technology Committee',
     'Guide technology priorities, policy, and service improvements across the faculty.',
-    '00000000-0000-0000-0000-000000000002'
+    '00000000-0000-0000-0000-000000000002',
+    '#007F86'
   );
 
 insert into public.committee_members (committee_id, profile_id, role_id)
@@ -117,6 +119,24 @@ insert into public.meetings (
   '',
   '00000000-0000-0000-0000-000000000003'
 );
+
+insert into public.meeting_agenda_items (id, meeting_id, title, sort_order) values
+  (
+    '21000000-0000-4000-8000-000000000001',
+    '20000000-0000-0000-0000-000000000001',
+    'Review curriculum proposals',
+    10
+  ),
+  (
+    '21000000-0000-4000-8000-000000000002',
+    '20000000-0000-0000-0000-000000000001',
+    'Confirm the fall work plan',
+    20
+  );
+
+insert into public.meeting_agenda_item_assignees (agenda_item_id, profile_id) values
+  ('21000000-0000-4000-8000-000000000001', '00000000-0000-0000-0000-000000000003'),
+  ('21000000-0000-4000-8000-000000000002', '00000000-0000-0000-0000-000000000004');
 
 insert into public.action_items (
   meeting_id, task, assignee_id, priority, created_by

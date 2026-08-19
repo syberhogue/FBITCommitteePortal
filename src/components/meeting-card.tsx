@@ -12,6 +12,10 @@ import {
   Users,
 } from "lucide-react";
 import { ConfirmSubmit } from "@/components/confirm-submit";
+import { BlockedStartButton } from "@/components/blocked-start-button";
+import { AgendaItemBuilder } from "@/components/agenda-item-builder";
+import { AgendaItemsView } from "@/components/agenda-items-view";
+import { MeetingWorkspace } from "@/components/meeting-workspace";
 import { RichTextEditor } from "@/components/rich-text-editor";
 import { RichTextView } from "@/components/rich-text-view";
 import { SubmitButton } from "@/components/submit-button";
@@ -27,7 +31,6 @@ import {
   toggleActionItem,
   toggleAttendance,
   unlockMeeting,
-  updateMeeting,
 } from "@/app/(portal)/portal-actions";
 import { formatDate } from "@/lib/utils";
 import type { Tables } from "@/types/database";
@@ -36,6 +39,8 @@ type Meeting = Tables<"meetings">;
 type ActionItem = Tables<"action_items">;
 type Attendance = Tables<"meeting_attendance">;
 type Membership = Tables<"committee_members">;
+type AgendaItem = Tables<"meeting_agenda_items">;
+type AgendaAssignment = Tables<"meeting_agenda_item_assignees">;
 type Person = Pick<Tables<"profiles">, "id" | "full_name">;
 type MeetingView = "upcoming" | "in-progress" | "finalize" | "history";
 
@@ -233,18 +238,36 @@ function ActionList({
   );
 }
 
-function MeetingDetailsView({ meeting, compact = false }: { meeting: Meeting; compact?: boolean }) {
+function MeetingDetailsView({
+  meeting,
+  agendaItems,
+  agendaAssignments,
+  peopleById,
+  compact = false,
+  muted = false,
+}: {
+  meeting: Meeting;
+  agendaItems: AgendaItem[];
+  agendaAssignments: AgendaAssignment[];
+  peopleById: Map<string, Person>;
+  compact?: boolean;
+  muted?: boolean;
+}) {
+  const sectionClass = muted
+    ? "rounded-xl border border-slate-300 bg-slate-100 p-4"
+    : "rounded-xl border border-slate-200 bg-white p-4";
   return (
     <div className="mt-4 grid gap-4 xl:grid-cols-3">
-      <section className="rounded-xl border border-slate-200 bg-white p-4">
+      <section className={sectionClass}>
         <h3 className="text-xs font-bold uppercase tracking-wide text-slate-500">Agenda</h3>
-        <RichTextView
-          value={meeting.agenda}
-          emptyText="No agenda has been recorded."
+        <AgendaItemsView
+          items={agendaItems}
+          assignments={agendaAssignments}
+          peopleById={peopleById}
           compact={compact}
         />
       </section>
-      <section className="rounded-xl border border-slate-200 bg-white p-4">
+      <section className={sectionClass}>
         <h3 className="text-xs font-bold uppercase tracking-wide text-slate-500">Meeting goals</h3>
         <RichTextView
           value={meeting.goals}
@@ -252,7 +275,7 @@ function MeetingDetailsView({ meeting, compact = false }: { meeting: Meeting; co
           compact={compact}
         />
       </section>
-      <section className="rounded-xl border border-slate-200 bg-white p-4">
+      <section className={sectionClass}>
         <h3 className="text-xs font-bold uppercase tracking-wide text-slate-500">
           Meeting notes / minutes
         </h3>
@@ -270,6 +293,8 @@ export function MeetingCard({
   meeting,
   actions,
   attendance,
+  agendaItems,
+  agendaAssignments,
   committeeId,
   memberships,
   people,
@@ -279,10 +304,14 @@ export function MeetingCard({
   canArchive,
   canDelete,
   meetingView,
+  upcomingTone = "next",
+  activeMeeting,
 }: {
   meeting: Meeting;
   actions: ActionItem[];
   attendance: Attendance[];
+  agendaItems: AgendaItem[];
+  agendaAssignments: AgendaAssignment[];
   committeeId: string;
   memberships: Membership[];
   people: Person[];
@@ -292,6 +321,8 @@ export function MeetingCard({
   canArchive: boolean;
   canDelete: boolean;
   meetingView: MeetingView;
+  upcomingTone?: "next" | "other";
+  activeMeeting?: { id: string; title: string } | null;
 }) {
   const peopleById = new Map(people.map((person) => [person.id, person]));
   const completedActionCount = actions.filter((action) => action.completed).length;
@@ -322,7 +353,14 @@ export function MeetingCard({
             </span>
           </summary>
           <div className="p-5 text-sm">
-            <MeetingDetailsView meeting={meeting} compact />
+            <MeetingDetailsView
+              meeting={meeting}
+              agendaItems={agendaItems}
+              agendaAssignments={agendaAssignments}
+              peopleById={peopleById}
+              compact
+              muted
+            />
             <AttendanceList
               meeting={meeting}
               memberships={memberships}
@@ -416,8 +454,19 @@ export function MeetingCard({
                 aria-label="Proposed meeting time"
               />
             </div>
-            <div className="grid gap-4 lg:grid-cols-2">
-              <RichTextEditor name="agenda" label="Planned agenda" initialValue={meeting.agenda} />
+            <AgendaItemBuilder
+              initialItems={[...agendaItems]
+                .sort((left, right) => left.sort_order - right.sort_order)
+                .map((item) => ({
+                  id: item.id,
+                  title: item.title,
+                  assigneeIds: agendaAssignments
+                    .filter((assignment) => assignment.agenda_item_id === item.id)
+                    .map((assignment) => assignment.profile_id),
+                }))}
+              people={people}
+            />
+            <div>
               <RichTextEditor name="goals" label="Meeting goals" initialValue={meeting.goals} />
             </div>
             <div className="flex flex-wrap gap-2">
@@ -434,7 +483,13 @@ export function MeetingCard({
         ) : (
           <>
             <h2 className="text-xl font-bold">{meeting.title}</h2>
-            <MeetingDetailsView meeting={meeting} />
+            <MeetingDetailsView
+              meeting={meeting}
+              agendaItems={agendaItems}
+              agendaAssignments={agendaAssignments}
+              peopleById={peopleById}
+              muted
+            />
           </>
         )}
       </Card>
@@ -442,17 +497,21 @@ export function MeetingCard({
   }
 
   if (meeting.status === "scheduled") {
+    const editableSummaryClass =
+      upcomingTone === "next" ? "border-[#0077CA] bg-[#e7f2fa]" : "border-[#E75D2A] bg-orange-50";
     return (
-      <Card className={`overflow-hidden ${canPlan ? "border-[#0077CA]" : "border-slate-300"}`}>
+      <Card
+        className={`overflow-hidden ${canPlan ? editableSummaryClass.split(" ")[0] : "border-slate-300"}`}
+      >
         <details className="group">
           <summary
-            className={`flex cursor-pointer list-none items-center gap-3 p-5 [&::-webkit-details-marker]:hidden ${canPlan ? "bg-[#eef6fb]" : "bg-slate-200 text-slate-600"}`}
+            className={`flex cursor-pointer list-none items-center gap-3 p-5 [&::-webkit-details-marker]:hidden ${canPlan ? editableSummaryClass.split(" ")[1] : "bg-slate-200 text-slate-600"}`}
           >
             <ChevronDown className="size-5 shrink-0 text-[#003C71] transition-transform group-open:rotate-180" />
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-2">
                 <h2 className="truncate font-bold">{meeting.title}</h2>
-                <Badge tone="blue">Scheduled</Badge>
+                <Badge tone={upcomingTone === "next" ? "blue" : "orange"}>Scheduled</Badge>
                 {!canPlan && (
                   <span className="inline-flex items-center gap-1 text-xs font-semibold text-slate-500">
                     <LockKeyhole className="size-3.5" /> Read only for your role
@@ -466,20 +525,29 @@ export function MeetingCard({
             <span className="text-xs font-semibold text-slate-500 group-open:hidden">Inspect</span>
           </summary>
           <div className={canPlan ? "p-5" : "bg-slate-50 p-5 text-slate-600"}>
-            <MeetingDetailsView meeting={meeting} />
+            <MeetingDetailsView
+              meeting={meeting}
+              agendaItems={agendaItems}
+              agendaAssignments={agendaAssignments}
+              peopleById={peopleById}
+              muted={!canPlan}
+            />
           </div>
         </details>
         {(canPlan || canArchive || canDelete) && (
           <div className="flex flex-wrap gap-2 border-t border-slate-200 bg-white px-5 py-3">
-            {canPlan && (
-              <form action={startMeeting}>
-                <input type="hidden" name="id" value={meeting.id} />
-                <input type="hidden" name="committee_id" value={committeeId} />
-                <SubmitButton pendingLabel="Starting…">
-                  <Play className="size-4" /> Start meeting
-                </SubmitButton>
-              </form>
-            )}
+            {canPlan &&
+              (activeMeeting ? (
+                <BlockedStartButton committeeId={committeeId} activeMeeting={activeMeeting} />
+              ) : (
+                <form action={startMeeting}>
+                  <input type="hidden" name="id" value={meeting.id} />
+                  <input type="hidden" name="committee_id" value={committeeId} />
+                  <SubmitButton pendingLabel="Starting…">
+                    <Play className="size-4" /> Start meeting
+                  </SubmitButton>
+                </form>
+              ))}
             {canArchive && <ArchiveControl meeting={meeting} committeeId={committeeId} />}
             {canDelete && (
               <DeleteControl
@@ -533,26 +601,23 @@ export function MeetingCard({
         </div>
       </div>
       {editable ? (
-        <form action={updateMeeting} className="space-y-4">
-          <input type="hidden" name="id" value={meeting.id} />
-          <input type="hidden" name="committee_id" value={committeeId} />
-          <input name="title" defaultValue={meeting.title} required className={inputClass} />
-          <div className="grid gap-4 lg:grid-cols-3">
-            <RichTextEditor name="agenda" label="Agenda" initialValue={meeting.agenda} compact />
-            <RichTextEditor
-              name="goals"
-              label="Meeting goals"
-              initialValue={meeting.goals}
-              compact
-            />
-            <RichTextEditor name="minutes" label="Minutes" initialValue={meeting.minutes} compact />
-          </div>
-          <SubmitButton>Save meeting notes</SubmitButton>
-        </form>
+        <MeetingWorkspace
+          meeting={meeting}
+          committeeId={committeeId}
+          agendaItems={agendaItems}
+          assignments={agendaAssignments}
+          people={people}
+        />
       ) : (
         <>
           <h2 className="text-xl font-bold">{meeting.title}</h2>
-          <MeetingDetailsView meeting={meeting} />
+          <MeetingDetailsView
+            meeting={meeting}
+            agendaItems={agendaItems}
+            agendaAssignments={agendaAssignments}
+            peopleById={peopleById}
+            muted
+          />
         </>
       )}
       <AttendanceList

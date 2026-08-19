@@ -4,10 +4,12 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { requireActiveProfile, requireAdmin } from "@/lib/auth";
+import { committeeColors } from "@/lib/committee-colors";
 import { serializeRichText } from "@/lib/rich-text";
 import { createClient } from "@/lib/supabase/server";
 import { postgresUuid } from "@/lib/validation";
 import type { AccessLevel, ActionPriority } from "@/types/database";
+import type { AgendaDraftItem } from "@/lib/agenda";
 
 const uuid = postgresUuid;
 const richText = (maxLength: number) =>
@@ -22,6 +24,83 @@ const richText = (maxLength: number) =>
       return z.NEVER;
     }
   });
+
+const agendaItems = z.string().transform((value, context): AgendaDraftItem[] => {
+  try {
+    return z
+      .array(
+        z.object({
+          id: uuid.optional(),
+          title: z.string().trim().min(1).max(500),
+          assigneeIds: z.array(uuid).max(50),
+        }),
+      )
+      .min(1, "Add at least one agenda item.")
+      .max(100)
+      .parse(JSON.parse(value));
+  } catch (error) {
+    context.addIssue({
+      code: "custom",
+      message: error instanceof Error ? error.message : "Invalid agenda items.",
+    });
+    return z.NEVER;
+  }
+});
+
+function agendaSummary(items: AgendaDraftItem[]) {
+  return items
+    .map((item, index) => `${index + 1}. ${item.title}`)
+    .join("\n")
+    .slice(0, 50000);
+}
+
+async function replaceMeetingAgendaItems(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  meetingId: string,
+  items: AgendaDraftItem[],
+  path: string,
+) {
+  const { data: existingItems, error: existingError } = await supabase
+    .from("meeting_agenda_items")
+    .select("id, completed_at, completed_by")
+    .eq("meeting_id", meetingId);
+  check(existingError, path);
+  const existingById = new Map((existingItems ?? []).map((item) => [item.id, item]));
+  const { error: deleteError } = await supabase
+    .from("meeting_agenda_items")
+    .delete()
+    .eq("meeting_id", meetingId);
+  check(deleteError, path);
+  const rows = items.map((item, index) => ({
+    id: item.id && existingById.has(item.id) ? item.id : crypto.randomUUID(),
+    meeting_id: meetingId,
+    title: item.title,
+    sort_order: (index + 1) * 10,
+    completed_at: item.id ? (existingById.get(item.id)?.completed_at ?? null) : null,
+    completed_by: item.id ? (existingById.get(item.id)?.completed_by ?? null) : null,
+    assigneeIds: [...new Set(item.assigneeIds)],
+  }));
+  const { error: itemError } = await supabase.from("meeting_agenda_items").insert(
+    rows.map((row) => ({
+      id: row.id,
+      meeting_id: row.meeting_id,
+      title: row.title,
+      sort_order: row.sort_order,
+      completed_at: row.completed_at,
+      completed_by: row.completed_by,
+    })),
+  );
+  check(itemError, path);
+  const assignments = rows.flatMap((row) =>
+    row.assigneeIds.map((profileId) => ({ agenda_item_id: row.id, profile_id: profileId })),
+  );
+  if (assignments.length) {
+    const { error: assignmentError } = await supabase
+      .from("meeting_agenda_item_assignees")
+      .insert(assignments);
+    check(assignmentError, path);
+  }
+}
 
 function formObject(formData: FormData) {
   return Object.fromEntries(formData.entries());
@@ -39,7 +118,11 @@ function check(error: { message: string } | null, path: string) {
 export async function createCommittee(formData: FormData) {
   const profile = await requireActiveProfile();
   const parsed = z
-    .object({ name: z.string().trim().min(2).max(200), mandate: z.string().trim().max(10000) })
+    .object({
+      name: z.string().trim().min(2).max(200),
+      mandate: z.string().trim().max(10000),
+      color: z.enum(committeeColors.map((color) => color.value)),
+    })
     .safeParse(formObject(formData));
   if (!parsed.success) fail("/committees", parsed.error.issues[0]?.message ?? "Invalid committee.");
   const supabase = await createClient();
@@ -50,6 +133,27 @@ export async function createCommittee(formData: FormData) {
     .single();
   check(error, "/committees");
   redirect(`/committees/${data!.id}`);
+}
+
+export async function updateCommitteeColor(formData: FormData) {
+  await requireActiveProfile();
+  const parsed = z
+    .object({
+      id: uuid,
+      color: z.enum(committeeColors.map((color) => color.value)),
+    })
+    .parse(formObject(formData));
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("committees")
+    .update({ color: parsed.color })
+    .eq("id", parsed.id)
+    .select("id")
+    .single();
+  check(error, `/committees/${parsed.id}`);
+  revalidatePath("/dashboard");
+  revalidatePath("/committees");
+  revalidatePath(`/committees/${parsed.id}`);
 }
 
 export async function updateCommittee(formData: FormData) {
@@ -124,7 +228,7 @@ const meetingPlanSchema = z.object({
   committee_id: uuid,
   title: z.string().trim().min(2).max(240),
   starts_at: z.string().min(1),
-  agenda: richText(50000),
+  agenda_items: agendaItems,
   goals: richText(50000),
 });
 
@@ -132,14 +236,22 @@ export async function createMeetingPlan(formData: FormData) {
   const profile = await requireActiveProfile();
   const parsed = meetingPlanSchema.parse(formObject(formData));
   const supabase = await createClient();
-  const { error } = await supabase.from("meetings").insert({
-    ...parsed,
-    starts_at: new Date(parsed.starts_at).toISOString(),
-    created_by: profile.id,
-    status: "planned",
-  });
   const destination = `/committees/${parsed.committee_id}?tab=meetings&meetingView=finalize`;
+  const { data: meeting, error } = await supabase
+    .from("meetings")
+    .insert({
+      committee_id: parsed.committee_id,
+      title: parsed.title,
+      starts_at: new Date(parsed.starts_at).toISOString(),
+      agenda: agendaSummary(parsed.agenda_items),
+      goals: parsed.goals,
+      created_by: profile.id,
+      status: "planned",
+    })
+    .select("id")
+    .single();
   check(error, destination);
+  await replaceMeetingAgendaItems(supabase, meeting!.id, parsed.agenda_items, destination);
   revalidatePath(`/committees/${parsed.committee_id}`);
   revalidatePath("/dashboard");
   redirect(destination);
@@ -151,10 +263,12 @@ export async function saveMeetingPlan(formData: FormData) {
     .extend({ id: uuid, intent: z.enum(["save", "finalize"]) })
     .parse(formObject(formData));
   const supabase = await createClient();
+  const destination = `/committees/${parsed.committee_id}?tab=meetings&meetingView=${parsed.intent === "finalize" ? "upcoming" : "finalize"}`;
+  await replaceMeetingAgendaItems(supabase, parsed.id, parsed.agenda_items, destination);
   const changes = {
     title: parsed.title,
     starts_at: new Date(parsed.starts_at).toISOString(),
-    agenda: parsed.agenda,
+    agenda: agendaSummary(parsed.agenda_items),
     goals: parsed.goals,
     ...(parsed.intent === "finalize"
       ? {
@@ -171,7 +285,6 @@ export async function saveMeetingPlan(formData: FormData) {
     .eq("status", "planned")
     .select("id")
     .single();
-  const destination = `/committees/${parsed.committee_id}?tab=meetings&meetingView=${parsed.intent === "finalize" ? "upcoming" : "finalize"}`;
   check(error, destination);
   revalidatePath(`/committees/${parsed.committee_id}`);
   revalidatePath("/dashboard");
@@ -185,7 +298,7 @@ export async function updateMeeting(formData: FormData) {
       id: uuid,
       committee_id: uuid,
       title: z.string().trim().min(2).max(240),
-      agenda: richText(50000),
+      agenda_items: agendaItems,
       goals: richText(50000),
       minutes: richText(100000),
     })
@@ -195,14 +308,20 @@ export async function updateMeeting(formData: FormData) {
     .from("meetings")
     .update({
       title: parsed.title,
-      agenda: parsed.agenda,
       goals: parsed.goals,
       minutes: parsed.minutes,
+      agenda: agendaSummary(parsed.agenda_items),
     })
     .eq("id", parsed.id)
     .select("id, status")
     .single();
   check(error, `/committees/${parsed.committee_id}?tab=meetings`);
+  await replaceMeetingAgendaItems(
+    supabase,
+    parsed.id,
+    parsed.agenda_items,
+    `/committees/${parsed.committee_id}?tab=meetings`,
+  );
   revalidatePath(`/committees/${parsed.committee_id}`);
   redirect(
     `/committees/${parsed.committee_id}?tab=meetings&meetingView=in-progress&focus=${parsed.id}#meeting-${parsed.id}`,
@@ -213,6 +332,23 @@ export async function startMeeting(formData: FormData) {
   await requireActiveProfile();
   const parsed = z.object({ id: uuid, committee_id: uuid }).parse(formObject(formData));
   const supabase = await createClient();
+  const { data: currentMeeting, error: currentMeetingError } = await supabase
+    .from("meetings")
+    .select("id, title")
+    .eq("committee_id", parsed.committee_id)
+    .eq("status", "in_progress")
+    .is("archived_at", null)
+    .neq("id", parsed.id)
+    .limit(1)
+    .maybeSingle();
+  check(currentMeetingError, `/committees/${parsed.committee_id}?tab=meetings`);
+  if (currentMeeting) {
+    const destination = `/committees/${parsed.committee_id}?tab=meetings&meetingView=in-progress&focus=${currentMeeting.id}`;
+    fail(
+      destination,
+      `Complete or archive “${currentMeeting.title}” before starting another meeting.`,
+    );
+  }
   const { error } = await supabase
     .from("meetings")
     .update({ status: "in_progress", started_at: new Date().toISOString() })
@@ -258,7 +394,29 @@ export async function completeMeeting(formData: FormData) {
   check(error, `/committees/${parsed.committee_id}?tab=meetings`);
   revalidatePath(`/committees/${parsed.committee_id}`);
   revalidatePath("/dashboard");
-  redirect(`/committees/${parsed.committee_id}?tab=meetings&meetingView=history`);
+  redirect(`/committees/${parsed.committee_id}?tab=meetings&meetingView=in-progress`);
+}
+
+export async function setAgendaItemCompletion(formData: FormData) {
+  await requireActiveProfile();
+  const parsed = z
+    .object({
+      agenda_item_id: uuid,
+      committee_id: uuid,
+      completed: z.enum(["true", "false"]),
+      minutes: z.string().optional(),
+    })
+    .parse(formObject(formData));
+  const isCompleted = parsed.completed === "true";
+  const minutes = isCompleted ? richText(100000).parse(parsed.minutes ?? "") : null;
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("set_agenda_item_completion", {
+    agenda_item_id: parsed.agenda_item_id,
+    is_completed: isCompleted,
+    minutes_value: minutes ?? undefined,
+  });
+  check(error, `/committees/${parsed.committee_id}?tab=meetings&meetingView=in-progress`);
+  revalidatePath(`/committees/${parsed.committee_id}`);
 }
 
 export async function unlockMeeting(formData: FormData) {
@@ -608,12 +766,32 @@ export async function toggleAllowedDomain(formData: FormData) {
 }
 
 export async function saveAgendaTemplate(formData: FormData) {
-  const profile = await requireActiveProfile();
-  const parsed = z.object({ value: richText(50000) }).parse(formObject(formData));
+  await requireAdmin();
+  const parsed = z.object({ agenda_items: agendaItems }).parse(formObject(formData));
   const supabase = await createClient();
-  const { error } = await supabase
-    .from("system_settings")
-    .upsert({ key: "agenda_template", value: parsed.value, updated_by: profile.id });
-  check(error, "/settings");
+  const { error: deleteError } = await supabase
+    .from("agenda_template_items")
+    .delete()
+    .gte("sort_order", 0);
+  check(deleteError, "/settings");
+  const rows = parsed.agenda_items.map((item, index) => ({
+    id: crypto.randomUUID(),
+    title: item.title,
+    sort_order: (index + 1) * 10,
+    assigneeIds: [...new Set(item.assigneeIds)],
+  }));
+  const { error: itemError } = await supabase
+    .from("agenda_template_items")
+    .insert(rows.map((row) => ({ id: row.id, title: row.title, sort_order: row.sort_order })));
+  check(itemError, "/settings");
+  const assignments = rows.flatMap((row) =>
+    row.assigneeIds.map((profileId) => ({ agenda_item_id: row.id, profile_id: profileId })),
+  );
+  if (assignments.length) {
+    const { error: assignmentError } = await supabase
+      .from("agenda_template_item_assignees")
+      .insert(assignments);
+    check(assignmentError, "/settings");
+  }
   revalidatePath("/settings");
 }

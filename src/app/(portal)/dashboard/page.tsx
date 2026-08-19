@@ -1,23 +1,22 @@
 import Link from "next/link";
 import {
+  ArrowRight,
+  CalendarDays,
   CalendarCheck,
   CheckCircle2,
   Circle,
   ClipboardCheck,
-  ListChecks,
-  Target,
-  Users,
+  Sparkles,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { requireActiveProfile } from "@/lib/auth";
-import { Card, PageHeader, Badge } from "@/components/ui";
+import { Card, Badge } from "@/components/ui";
 import { RealtimeActivity } from "@/components/realtime-activity";
 import { currentTimestamp, formatDate } from "@/lib/utils";
 
 export default async function DashboardPage() {
   const [profile, supabase] = await Promise.all([requireActiveProfile(), createClient()]);
   const [
-    profilesResult,
     committeesResult,
     meetingsResult,
     actionsResult,
@@ -25,11 +24,11 @@ export default async function DashboardPage() {
     activityResult,
     membershipsResult,
     rolesResult,
+    activityActorsResult,
   ] = await Promise.all([
-    supabase.from("profiles").select("id", { count: "exact", head: true }).eq("status", "active"),
     supabase
       .from("committees")
-      .select("id, name, mandate, status")
+      .select("id, name, mandate, status, color")
       .eq("status", "active")
       .order("name"),
     supabase
@@ -48,11 +47,12 @@ export default async function DashboardPage() {
       .order("target_date"),
     supabase
       .from("activity_log")
-      .select("id, event_type, details, created_at")
+      .select("id, event_type, entity_type, actor_id, committee_id, details, created_at")
       .order("created_at", { ascending: false })
       .limit(20),
     supabase.from("committee_members").select("committee_id, profile_id, role_id"),
     supabase.from("committee_roles").select("id, access_level"),
+    supabase.from("profiles").select("id, full_name").eq("status", "active"),
   ]);
   const committees = committeesResult.data ?? [];
   const meetings = meetingsResult.data ?? [];
@@ -82,29 +82,149 @@ export default async function DashboardPage() {
       new Date(meeting.starts_at).getTime() >= now,
   );
   const committeesById = new Map(committees.map((committee) => [committee.id, committee]));
+  const firstName = profile.full_name.trim().split(/\s+/)[0] || "there";
+  const hasMeetingAttention = plannedForChair.length > 0;
+
   return (
     <>
-      <PageHeader
-        title="Dashboard"
-        description="Your live overview of university committee work, progress and accountability."
-      />
-      {(plannedForChair.length > 0 || upcomingMeetings.length > 0) && (
-        <div className="grid gap-5 lg:grid-cols-2">
+      <header className="relative overflow-hidden rounded-3xl bg-[#003C71] px-6 py-7 text-white shadow-sm sm:px-8 sm:py-9">
+        <div
+          aria-hidden="true"
+          className="absolute -right-16 -top-24 size-64 rounded-full border-[44px] border-[#0077CA]/50"
+        />
+        <div
+          aria-hidden="true"
+          className="absolute -bottom-24 right-32 size-48 rounded-full bg-[#E75D2A]/15"
+        />
+        <div className="relative flex flex-col justify-between gap-6 sm:flex-row sm:items-end">
+          <div>
+            <p className="mb-2 flex items-center gap-2 text-xs font-bold uppercase tracking-[0.18em] text-[#8ED8F8]">
+              <Sparkles className="size-4" /> Welcome back, {firstName}
+            </p>
+            <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">Dashboard</h1>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-blue-100 sm:text-base">
+              Keep up with scheduled meetings, committee priorities and recent work in one place.
+            </p>
+          </div>
+          <Link
+            href="/committees"
+            className="inline-flex w-fit items-center gap-2 rounded-xl bg-white px-4 py-2.5 text-sm font-bold text-[#003C71] shadow-sm transition hover:bg-[#EAF6FC] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
+          >
+            View committees <ArrowRight className="size-4" />
+          </Link>
+        </div>
+      </header>
+
+      <section aria-labelledby="dashboard-meetings-heading">
+        <div className="mb-4 flex flex-col justify-between gap-2 sm:flex-row sm:items-end">
+          <div>
+            <h2 id="dashboard-meetings-heading" className="text-xl font-bold text-slate-950">
+              Meetings
+            </h2>
+            <p className="mt-1 text-sm text-slate-500">
+              Your upcoming schedule and plans waiting for approval.
+            </p>
+          </div>
+          {hasMeetingAttention && (
+            <span className="inline-flex w-fit items-center gap-2 rounded-full bg-orange-100 px-3 py-1 text-xs font-bold text-orange-900">
+              <span className="size-2 rounded-full bg-[#E75D2A]" />
+              {plannedForChair.length} {plannedForChair.length === 1 ? "plan needs" : "plans need"}{" "}
+              attention
+            </span>
+          )}
+        </div>
+
+        <div
+          className={`grid gap-5 ${
+            upcomingMeetings.length > 0 && plannedForChair.length > 0
+              ? "xl:grid-cols-[minmax(0,2fr)_minmax(20rem,1fr)]"
+              : ""
+          }`}
+        >
+          {upcomingMeetings.length > 0 ? (
+            <Card className="overflow-hidden border-slate-200">
+              <div className="flex items-center justify-between gap-4 bg-gradient-to-r from-[#003C71] to-[#005A96] px-5 py-4 text-white sm:px-6">
+                <h3 className="flex items-center gap-3 font-bold">
+                  <span className="grid size-9 place-items-center rounded-lg bg-white/15">
+                    <CalendarCheck className="size-5" />
+                  </span>
+                  Your scheduled meetings
+                </h3>
+                <span className="rounded-full bg-white/15 px-2.5 py-1 text-xs font-bold">
+                  {upcomingMeetings.length}
+                </span>
+              </div>
+              <ul className="max-h-[25rem] space-y-2 overflow-y-auto bg-slate-50/80 p-3 sm:p-4">
+                {upcomingMeetings.map((meeting) => {
+                  const committee = committeesById.get(meeting.committee_id);
+                  return (
+                    <li key={meeting.id}>
+                      <Link
+                        href={`/committees/${meeting.committee_id}?tab=meetings`}
+                        className="group flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-4 transition hover:-translate-y-0.5 hover:border-[#0077CA]/50 hover:shadow-md sm:flex-row sm:items-center sm:justify-between"
+                      >
+                        <span className="flex min-w-0 items-center gap-3">
+                          <span
+                            aria-hidden="true"
+                            className="h-12 w-1 shrink-0 rounded-full"
+                            style={{ backgroundColor: committee?.color ?? "#0077CA" }}
+                          />
+                          <span className="min-w-0">
+                            <span className="block truncate font-bold text-slate-900 group-hover:text-[#005A96]">
+                              {meeting.title}
+                            </span>
+                            <span className="mt-0.5 block truncate text-sm text-slate-500">
+                              {committee?.name}
+                            </span>
+                          </span>
+                        </span>
+                        <span className="flex shrink-0 items-center gap-2 text-sm font-bold text-[#003C71]">
+                          <CalendarDays className="size-4 text-[#0077CA]" />
+                          {formatDate(meeting.starts_at, true)}
+                          <ArrowRight className="size-4 opacity-0 transition group-hover:translate-x-0.5 group-hover:opacity-100" />
+                        </span>
+                      </Link>
+                    </li>
+                  );
+                })}
+              </ul>
+            </Card>
+          ) : (
+            <Card className="flex items-center gap-4 border-dashed p-6">
+              <span className="grid size-11 shrink-0 place-items-center rounded-xl bg-[#EAF6FC] text-[#0077CA]">
+                <CalendarCheck className="size-5" />
+              </span>
+              <div>
+                <h3 className="font-bold text-slate-900">No scheduled meetings</h3>
+                <p className="mt-1 text-sm text-slate-500">
+                  New meetings will appear here after their plans are finalized.
+                </p>
+              </div>
+            </Card>
+          )}
+
           {plannedForChair.length > 0 && (
-            <Card className="border-[#E75D2A] p-5">
-              <h2 className="flex items-center gap-2 font-bold text-[#003C71]">
-                <ClipboardCheck className="size-5" /> Plans requiring finalization
-              </h2>
-              <ul className="mt-4 space-y-2">
+            <Card className="overflow-hidden border-orange-200">
+              <div className="flex items-center justify-between gap-4 border-b border-orange-100 bg-orange-50 px-5 py-4">
+                <h3 className="flex items-center gap-3 font-bold text-[#003C71]">
+                  <span className="grid size-9 place-items-center rounded-lg bg-[#E75D2A] text-white">
+                    <ClipboardCheck className="size-5" />
+                  </span>
+                  Plans requiring finalization
+                </h3>
+              </div>
+              <ul className="max-h-[25rem] space-y-2 overflow-y-auto p-3 sm:p-4">
                 {plannedForChair.map((meeting) => (
                   <li key={meeting.id}>
                     <Link
                       href={`/committees/${meeting.committee_id}?tab=meetings&meetingView=finalize`}
-                      className="flex items-center justify-between gap-3 rounded-lg bg-orange-50 p-3 hover:bg-orange-100"
+                      className="group flex items-center justify-between gap-3 rounded-xl border border-orange-100 bg-orange-50/60 p-3.5 transition hover:border-orange-300 hover:bg-orange-50"
                     >
-                      <span>
-                        <span className="block font-semibold">{meeting.title}</span>
-                        <span className="text-xs text-slate-500">
+                      <span className="min-w-0">
+                        <span className="block truncate font-semibold text-slate-900">
+                          {meeting.title}
+                        </span>
+                        <span className="mt-0.5 block truncate text-xs text-slate-500">
                           {committeesById.get(meeting.committee_id)?.name}
                         </span>
                       </span>
@@ -115,82 +235,26 @@ export default async function DashboardPage() {
               </ul>
             </Card>
           )}
-          {upcomingMeetings.length > 0 && (
-            <Card className="border-[#0077CA] p-5">
-              <h2 className="flex items-center gap-2 font-bold text-[#003C71]">
-                <CalendarCheck className="size-5" /> Your scheduled meetings
-              </h2>
-              <ul className="mt-4 space-y-2">
-                {upcomingMeetings.slice(0, 5).map((meeting) => (
-                  <li key={meeting.id}>
-                    <Link
-                      href={`/committees/${meeting.committee_id}?tab=meetings`}
-                      className="flex items-center justify-between gap-3 rounded-lg bg-indigo-50 p-3 hover:bg-indigo-100"
-                    >
-                      <span>
-                        <span className="block font-semibold">{meeting.title}</span>
-                        <span className="text-xs text-slate-500">
-                          {committeesById.get(meeting.committee_id)?.name}
-                        </span>
-                      </span>
-                      <span className="text-right text-xs font-semibold text-[#003C71]">
-                        {formatDate(meeting.starts_at, true)}
-                      </span>
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            </Card>
-          )}
         </div>
-      )}
-      <div className="grid gap-5 md:grid-cols-3">
-        {[
-          {
-            label: "Active personnel",
-            value: profilesResult.count ?? 0,
-            icon: Users,
-            color: "bg-blue-100 text-blue-700",
-          },
-          {
-            label: "Visible committees",
-            value: committees.length,
-            icon: Target,
-            color: "bg-indigo-100 text-indigo-700",
-          },
-          {
-            label: "Pending actions",
-            value: actions.length,
-            icon: ListChecks,
-            color: "bg-emerald-100 text-emerald-700",
-          },
-        ].map(({ label, value, icon: Icon, color }) => (
-          <Card key={label} className="flex items-center gap-4 p-6">
-            <span className={`grid size-12 place-items-center rounded-xl ${color}`}>
-              <Icon className="size-6" />
-            </span>
-            <div>
-              <p className="text-sm font-medium text-slate-500">{label}</p>
-              <p className="text-3xl font-bold text-slate-950">{value}</p>
-            </div>
-          </Card>
-        ))}
-      </div>
+      </section>
+
       <div className="grid gap-6 xl:grid-cols-3">
-        <Card className="p-6 xl:col-span-2">
-          <div className="mb-5 flex items-center justify-between border-b border-slate-100 pb-4">
+        <Card className="overflow-hidden xl:col-span-2">
+          <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-6 py-5">
             <div>
-              <h2 className="font-bold text-slate-900">Committee inspector</h2>
-              <p className="text-xs text-slate-500">Assigned work and milestones by committee.</p>
+              <h2 className="text-lg font-bold text-slate-900">Committee inspector</h2>
+              <p className="mt-0.5 text-sm text-slate-500">
+                Assigned work and milestones by committee.
+              </p>
             </div>
             <Link
               href="/committees"
-              className="text-sm font-semibold text-indigo-600 hover:underline"
+              className="inline-flex items-center gap-1 text-sm font-bold text-[#0066A4] hover:underline"
             >
-              View directory
+              View directory <ArrowRight className="size-4" />
             </Link>
           </div>
-          <div className="space-y-4">
+          <div className="space-y-4 p-5 sm:p-6">
             {committees.map((committee) => {
               const committeeMeetingIds = new Set(
                 meetings.filter((m) => m.committee_id === committee.id).map((m) => m.id),
@@ -212,60 +276,70 @@ export default async function DashboardPage() {
                     new Date(left.starts_at).getTime() - new Date(right.starts_at).getTime(),
                 )[0];
               return (
-                <div key={committee.id} className="rounded-xl border border-slate-200 p-4">
-                  <div className="flex flex-col justify-between gap-3 sm:flex-row">
-                    <div>
-                      <Link
-                        href={`/committees/${committee.id}`}
-                        className="font-bold text-indigo-700 hover:underline"
-                      >
-                        {committee.name}
-                      </Link>
-                      <p className="line-clamp-1 text-xs text-slate-500">{committee.mandate}</p>
+                <div
+                  key={committee.id}
+                  className="overflow-hidden rounded-xl border border-slate-200"
+                  style={{ borderTopColor: committee.color, borderTopWidth: 5 }}
+                >
+                  <div className="p-4">
+                    <div className="flex flex-col justify-between gap-3 sm:flex-row">
+                      <div>
+                        <Link
+                          href={`/committees/${committee.id}`}
+                          className="font-bold hover:underline"
+                          style={{ color: committee.color }}
+                        >
+                          {committee.name}
+                        </Link>
+                        <p className="line-clamp-1 text-xs text-slate-500">{committee.mandate}</p>
+                      </div>
+                      <div className="flex gap-2">
+                        <Badge tone="amber">{committeeActions.length} actions</Badge>
+                        <Badge tone="green">{committeeGoals.length} goals</Badge>
+                      </div>
                     </div>
-                    <div className="flex gap-2">
-                      <Badge tone="amber">{committeeActions.length} actions</Badge>
-                      <Badge tone="green">{committeeGoals.length} goals</Badge>
+                    <div className="mt-4 grid gap-3 md:grid-cols-2">
+                      <ul className="space-y-2">
+                        {committeeActions.slice(0, 3).map((action) => (
+                          <li key={action.id} className="flex items-center gap-2 text-xs">
+                            <Circle className="size-3 text-slate-300" />
+                            <span className="flex-1 truncate">{action.task}</span>
+                            <Badge
+                              tone={
+                                action.priority === "high"
+                                  ? "red"
+                                  : action.priority === "medium"
+                                    ? "amber"
+                                    : "green"
+                              }
+                            >
+                              {action.priority}
+                            </Badge>
+                          </li>
+                        ))}
+                        {!committeeActions.length && (
+                          <li className="text-xs italic text-slate-400">No pending actions.</li>
+                        )}
+                      </ul>
+                      <ul className="space-y-2">
+                        {committeeGoals.slice(0, 3).map((goal) => (
+                          <li key={goal.id} className="flex items-center gap-2 text-xs">
+                            <CheckCircle2 className="size-3 text-emerald-500" />
+                            <span className="flex-1 truncate">{goal.title}</span>
+                            <span className="text-slate-400">{formatDate(goal.target_date)}</span>
+                          </li>
+                        ))}
+                        {!committeeGoals.length && (
+                          <li className="text-xs italic text-slate-400">No active goals.</li>
+                        )}
+                      </ul>
                     </div>
                   </div>
-                  <div className="mt-4 grid gap-3 md:grid-cols-2">
-                    <ul className="space-y-2">
-                      {committeeActions.slice(0, 3).map((action) => (
-                        <li key={action.id} className="flex items-center gap-2 text-xs">
-                          <Circle className="size-3 text-slate-300" />
-                          <span className="flex-1 truncate">{action.task}</span>
-                          <Badge
-                            tone={
-                              action.priority === "high"
-                                ? "red"
-                                : action.priority === "medium"
-                                  ? "amber"
-                                  : "green"
-                            }
-                          >
-                            {action.priority}
-                          </Badge>
-                        </li>
-                      ))}
-                      {!committeeActions.length && (
-                        <li className="text-xs italic text-slate-400">No pending actions.</li>
-                      )}
-                    </ul>
-                    <ul className="space-y-2">
-                      {committeeGoals.slice(0, 3).map((goal) => (
-                        <li key={goal.id} className="flex items-center gap-2 text-xs">
-                          <CheckCircle2 className="size-3 text-emerald-500" />
-                          <span className="flex-1 truncate">{goal.title}</span>
-                          <span className="text-slate-400">{formatDate(goal.target_date)}</span>
-                        </li>
-                      ))}
-                      {!committeeGoals.length && (
-                        <li className="text-xs italic text-slate-400">No active goals.</li>
-                      )}
-                    </ul>
-                  </div>
-                  <div className="mt-4 border-t border-slate-100 pt-3 text-xs">
-                    <span className="font-bold text-[#003C71]">Next meeting: </span>
+                  <div
+                    className="px-4 py-3 text-xs text-white"
+                    style={{ backgroundColor: committee.color }}
+                  >
+                    <span className="font-bold">Next meeting: </span>
                     {nextMeeting ? (
                       <Link
                         href={`/committees/${committee.id}?tab=meetings`}
@@ -274,7 +348,7 @@ export default async function DashboardPage() {
                         {nextMeeting.title} · {formatDate(nextMeeting.starts_at, true)}
                       </Link>
                     ) : (
-                      <span className="text-slate-400">Not scheduled</span>
+                      <span className="text-white/75">Not scheduled</span>
                     )}
                   </div>
                 </div>
@@ -287,9 +361,19 @@ export default async function DashboardPage() {
             )}
           </div>
         </Card>
-        <Card className="p-6">
-          <h2 className="mb-5 border-b border-slate-100 pb-4 font-bold">Recent activity</h2>
-          <RealtimeActivity initial={activityResult.data ?? []} />
+        <Card className="overflow-hidden">
+          <div className="border-b border-slate-200 bg-slate-50 px-6 py-5">
+            <h2 className="text-lg font-bold text-slate-900">Recent activity</h2>
+            <p className="mt-0.5 text-sm text-slate-500">Latest updates from your committees.</p>
+          </div>
+          <div className="p-5 sm:p-6">
+            <RealtimeActivity
+              initial={activityResult.data ?? []}
+              actors={activityActorsResult.data ?? []}
+              allowedCommitteeIds={[...ownCommitteeIds]}
+              showAll={profile.global_role === "admin"}
+            />
+          </div>
         </Card>
       </div>
     </>

@@ -1,5 +1,20 @@
 begin;
-select plan(18);
+select plan(20);
+
+insert into public.meetings (
+  id, committee_id, title, starts_at, status, agenda, goals, finalized_at, finalized_by, created_by
+) values (
+  '90000000-0000-4000-8000-000000000002',
+  '10000000-0000-0000-0000-000000000001',
+  'Second workflow meeting',
+  '2032-09-19 10:00:00-04',
+  'scheduled',
+  '{"type":"doc","content":[]}',
+  '{"type":"doc","content":[]}',
+  now(),
+  '00000000-0000-0000-0000-000000000003',
+  '00000000-0000-0000-0000-000000000003'
+);
 
 set local role authenticated;
 
@@ -101,6 +116,14 @@ select lives_ok(
     where id = '90000000-0000-4000-8000-000000000001'$$,
   'committee Chair can start a scheduled meeting'
 );
+select throws_ok(
+  $$update public.meetings
+    set status = 'in_progress', started_at = now()
+    where id = '90000000-0000-4000-8000-000000000002'$$,
+  '23514',
+  'Complete the current in-progress meeting before starting another.',
+  'a second meeting cannot start while one is in progress'
+);
 select lives_ok(
   $$insert into public.meeting_attendance (
       meeting_id, profile_id, present, marked_at, marked_by
@@ -175,6 +198,17 @@ select lives_ok(
     set archived_at = now()
     where id = '90000000-0000-4000-8000-000000000001'$$,
   'an administrator can archive an unlocked meeting'
+);
+select set_config(
+  'request.jwt.claims',
+  '{"sub":"00000000-0000-0000-0000-000000000003","role":"authenticated"}',
+  true
+);
+select lives_ok(
+  $$update public.meetings
+    set status = 'in_progress', started_at = now()
+    where id = '90000000-0000-4000-8000-000000000002'$$,
+  'another meeting can start after the current meeting is archived'
 );
 
 select set_config(

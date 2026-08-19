@@ -1,11 +1,10 @@
 import { Globe2, LockKeyhole, Plus, Trash2 } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
-import { requireActiveProfile } from "@/lib/auth";
+import { requireSettingsAccess } from "@/lib/auth";
 import { Badge, Card, PageHeader, inputClass, secondaryButtonClass } from "@/components/ui";
 import { SubmitButton } from "@/components/submit-button";
 import { ConfirmSubmit } from "@/components/confirm-submit";
-import { RichTextEditor } from "@/components/rich-text-editor";
-import { RichTextView } from "@/components/rich-text-view";
+import { AgendaItemBuilder } from "@/components/agenda-item-builder";
 import {
   createAllowedDomain,
   createCommitteeRole,
@@ -20,16 +19,32 @@ export default async function SettingsPage({
   searchParams: Promise<{ error?: string }>;
 }) {
   const [profile, params, supabase] = await Promise.all([
-    requireActiveProfile(),
+    requireSettingsAccess(),
     searchParams,
     createClient(),
   ]);
-  const [{ data: roles = [] }, { data: domains = [] }, { data: template }] = await Promise.all([
-    supabase.from("committee_roles").select("*").order("sort_order"),
-    supabase.from("allowed_email_domains").select("*").order("domain"),
-    supabase.from("system_settings").select("value").eq("key", "agenda_template").single(),
-  ]);
+  const [rolesResult, domainsResult, templateItemsResult, templateAssignmentsResult, peopleResult] =
+    await Promise.all([
+      supabase.from("committee_roles").select("*").order("sort_order"),
+      supabase.from("allowed_email_domains").select("*").order("domain"),
+      supabase.from("agenda_template_items").select("*").order("sort_order"),
+      supabase.from("agenda_template_item_assignees").select("*"),
+      supabase.from("profiles").select("id, full_name").eq("status", "active").order("full_name"),
+    ]);
+  const roles = rolesResult.data ?? [];
+  const domains = domainsResult.data ?? [];
+  const templateItems = templateItemsResult.data ?? [];
+  const templateAssignments = templateAssignmentsResult.data ?? [];
+  const people = peopleResult.data ?? [];
   const isAdmin = profile.global_role === "admin";
+  const peopleById = new Map(people.map((person) => [person.id, person.full_name]));
+  const templateDraft = templateItems.map((item) => ({
+    id: item.id,
+    title: item.title,
+    assigneeIds: templateAssignments
+      .filter((assignment) => assignment.agenda_item_id === item.id)
+      .map((assignment) => assignment.profile_id),
+  }));
   return (
     <>
       <PageHeader
@@ -129,23 +144,29 @@ export default async function SettingsPage({
         </Card>
         <Card className="p-6 xl:col-span-2">
           <h2 className="font-bold">Default agenda template</h2>
-          <p className="mt-1 text-xs text-slate-500">New meetings begin with this shared agenda.</p>
+          <p className="mt-1 text-xs text-slate-500">
+            New meeting plans begin with these ordered action items and personnel assignments.
+          </p>
           {isAdmin ? (
-            <form action={saveAgendaTemplate} className="mt-4">
-              <RichTextEditor
-                name="value"
-                label="Agenda template"
-                initialValue={typeof template?.value === "string" ? template.value : ""}
-              />
+            <form action={saveAgendaTemplate} className="mt-4 space-y-4">
+              <AgendaItemBuilder initialItems={templateDraft} people={people} />
               <SubmitButton className="mt-3">Save template</SubmitButton>
             </form>
           ) : (
-            <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-4">
-              <RichTextView
-                value={typeof template?.value === "string" ? template.value : ""}
-                emptyText="No agenda template has been configured."
-              />
-            </div>
+            <ol className="mt-4 space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-4">
+              {templateItems.map((item, index) => {
+                const names = templateAssignments
+                  .filter((assignment) => assignment.agenda_item_id === item.id)
+                  .map((assignment) => peopleById.get(assignment.profile_id))
+                  .filter(Boolean);
+                return (
+                  <li key={item.id} className="rounded-lg bg-white p-3 text-sm">
+                    {index + 1}. {item.title}
+                    {names.length ? ` (${names.join(", ")})` : ""}
+                  </li>
+                );
+              })}
+            </ol>
           )}
         </Card>
       </div>

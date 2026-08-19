@@ -140,6 +140,63 @@ export type Database = {
           },
         ];
       };
+      agenda_template_item_assignees: {
+        Row: {
+          agenda_item_id: string;
+          created_at: string;
+          profile_id: string;
+        };
+        Insert: {
+          agenda_item_id: string;
+          created_at?: string;
+          profile_id: string;
+        };
+        Update: {
+          agenda_item_id?: string;
+          created_at?: string;
+          profile_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "agenda_template_item_assignees_agenda_item_id_fkey";
+            columns: ["agenda_item_id"];
+            isOneToOne: false;
+            referencedRelation: "agenda_template_items";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "agenda_template_item_assignees_profile_id_fkey";
+            columns: ["profile_id"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      agenda_template_items: {
+        Row: {
+          created_at: string;
+          id: string;
+          sort_order: number;
+          title: string;
+          updated_at: string;
+        };
+        Insert: {
+          created_at?: string;
+          id?: string;
+          sort_order: number;
+          title: string;
+          updated_at?: string;
+        };
+        Update: {
+          created_at?: string;
+          id?: string;
+          sort_order?: number;
+          title?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
       allowed_email_domains: {
         Row: {
           created_at: string;
@@ -281,6 +338,7 @@ export type Database = {
       };
       committees: {
         Row: {
+          color: string;
           created_at: string;
           created_by: string | null;
           id: string;
@@ -291,6 +349,7 @@ export type Database = {
           updated_at: string;
         };
         Insert: {
+          color?: string;
           created_at?: string;
           created_by?: string | null;
           id?: string;
@@ -301,6 +360,7 @@ export type Database = {
           updated_at?: string;
         };
         Update: {
+          color?: string;
           created_at?: string;
           created_by?: string | null;
           id?: string;
@@ -367,6 +427,87 @@ export type Database = {
             columns: ["created_by"];
             isOneToOne: false;
             referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      meeting_agenda_item_assignees: {
+        Row: {
+          agenda_item_id: string;
+          created_at: string;
+          profile_id: string;
+        };
+        Insert: {
+          agenda_item_id: string;
+          created_at?: string;
+          profile_id: string;
+        };
+        Update: {
+          agenda_item_id?: string;
+          created_at?: string;
+          profile_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "meeting_agenda_item_assignees_agenda_item_id_fkey";
+            columns: ["agenda_item_id"];
+            isOneToOne: false;
+            referencedRelation: "meeting_agenda_items";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "meeting_agenda_item_assignees_profile_id_fkey";
+            columns: ["profile_id"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      meeting_agenda_items: {
+        Row: {
+          completed_at: string | null;
+          completed_by: string | null;
+          created_at: string;
+          id: string;
+          meeting_id: string;
+          sort_order: number;
+          title: string;
+          updated_at: string;
+        };
+        Insert: {
+          completed_at?: string | null;
+          completed_by?: string | null;
+          created_at?: string;
+          id?: string;
+          meeting_id: string;
+          sort_order: number;
+          title: string;
+          updated_at?: string;
+        };
+        Update: {
+          completed_at?: string | null;
+          completed_by?: string | null;
+          created_at?: string;
+          id?: string;
+          meeting_id?: string;
+          sort_order?: number;
+          title?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "meeting_agenda_items_completed_by_fkey";
+            columns: ["completed_by"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "meeting_agenda_items_meeting_id_fkey";
+            columns: ["meeting_id"];
+            isOneToOne: false;
+            referencedRelation: "meetings";
             referencedColumns: ["id"];
           },
         ];
@@ -709,6 +850,14 @@ export type Database = {
           subtitle: string;
           title: string;
         }[];
+      };
+      set_agenda_item_completion: {
+        Args: {
+          agenda_item_id: string;
+          is_completed: boolean;
+          minutes_value?: string;
+        };
+        Returns: undefined;
       };
     };
     Enums: {
