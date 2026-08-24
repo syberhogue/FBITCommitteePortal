@@ -29,9 +29,21 @@ export async function requireActiveProfile() {
   return profile;
 }
 
+export function normalizedGlobalRole(profile: Pick<Profile, "global_role">) {
+  return profile.global_role.trim().toLowerCase();
+}
+
+export function isAdminProfile(profile: Pick<Profile, "global_role">) {
+  return normalizedGlobalRole(profile) === "admin";
+}
+
+export function isDeanProfile(profile: Pick<Profile, "global_role">) {
+  return normalizedGlobalRole(profile) === "dean" || normalizedGlobalRole(profile) === "ad";
+}
+
 export async function requireAdmin() {
   const profile = await requireActiveProfile();
-  if (profile.global_role !== "admin") redirect("/dashboard?error=Administrator access required.");
+  if (!isAdminProfile(profile)) redirect("/dashboard?error=Administrator access required.");
   return profile;
 }
 
@@ -40,9 +52,9 @@ export async function requireSettingsAccess() {
 }
 
 export async function hasSettingsAccess(profile: Profile) {
-  return profile.global_role === "admin";
+  return isAdminProfile(profile);
 }
 
 export function canManageAllCommittees(profile: Profile) {
-  return profile.global_role === "admin" || profile.global_role === "dean";
+  return isAdminProfile(profile) || isDeanProfile(profile);
 }

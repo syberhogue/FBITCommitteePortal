@@ -1,6 +1,6 @@
 import { Globe2, LockKeyhole, Plus, Trash2 } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
-import { requireSettingsAccess } from "@/lib/auth";
+import { isAdminProfile, requireSettingsAccess } from "@/lib/auth";
 import { Badge, Card, PageHeader, inputClass, secondaryButtonClass } from "@/components/ui";
 import { SubmitButton } from "@/components/submit-button";
 import { ConfirmSubmit } from "@/components/confirm-submit";
@@ -33,20 +33,20 @@ export default async function SettingsPage({
     templateAssignmentsResult,
     peopleResult,
   ] = await Promise.all([
-      supabase.from("committee_roles").select("*").order("sort_order"),
-      supabase.from("allowed_email_domains").select("*").order("domain"),
-      supabase.from("agenda_templates").select("*").is("committee_id", null).order("name"),
-      supabase.from("agenda_template_items").select("*").order("sort_order"),
-      supabase.from("agenda_template_item_assignees").select("*"),
-      supabase.from("profiles").select("id, full_name").eq("status", "active").order("full_name"),
-    ]);
+    supabase.from("committee_roles").select("*").order("sort_order"),
+    supabase.from("allowed_email_domains").select("*").order("domain"),
+    supabase.from("agenda_templates").select("*").is("committee_id", null).order("name"),
+    supabase.from("agenda_template_items").select("*").order("sort_order"),
+    supabase.from("agenda_template_item_assignees").select("*"),
+    supabase.from("profiles").select("id, full_name").eq("status", "active").order("full_name"),
+  ]);
   const roles = rolesResult.data ?? [];
   const domains = domainsResult.data ?? [];
   const templates = templatesResult.data ?? [];
   const templateItems = templateItemsResult.data ?? [];
   const templateAssignments = templateAssignmentsResult.data ?? [];
   const people = peopleResult.data ?? [];
-  const isAdmin = profile.global_role === "admin";
+  const isAdmin = isAdminProfile(profile);
   const templateDraftFor = (templateId: string) =>
     templateItems
       .filter((item) => item.template_id === templateId)

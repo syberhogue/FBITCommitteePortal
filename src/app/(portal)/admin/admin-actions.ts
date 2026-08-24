@@ -45,6 +45,20 @@ async function audit(
 type CsvRow = Record<string, string>;
 type HeaderAliases = Record<string, string>;
 
+const accountStatuses = ["pending", "active", "suspended"] as const;
+const personCategories = ["faculty", "staff", "admin"] as const;
+const activeStatusAliases = new Set(["research leave", "leave", "sabbatical"]);
+const suspendedStatusAliases = new Set(["inactive", "disabled"]);
+const staffGlobalRoles = new Set([
+  "academic planning specialist",
+  "dpo",
+  "program assistant",
+  "graduate program assistant",
+  "program coordinator",
+  "administrative assistant",
+  "staff",
+]);
+
 const personnelHeaderAliases: HeaderAliases = {
   name: "full_name",
   acronym: "committee",
@@ -120,8 +134,50 @@ function normalizeCsvValue(row: CsvRow, key: string) {
   return row[key]?.trim() ?? "";
 }
 
+function normalizeRoleName(value: string) {
+  return value.trim().replace(/\s+/g, " ");
+}
+
+function normalizeProfileGlobalRole(value: string) {
+  return value.trim().replace(/\s+/g, " ") || "Faculty";
+}
+
+function normalizeAccountStatus(value: string) {
+  const status = normalizeKey(value);
+  if (!status) return "active";
+  if (accountStatuses.includes(status as (typeof accountStatuses)[number])) {
+    return status as (typeof accountStatuses)[number];
+  }
+  if (activeStatusAliases.has(status)) return "active";
+  if (suspendedStatusAliases.has(status)) return "suspended";
+  return null;
+}
+
+function inferPersonCategory(globalRole: string): (typeof personCategories)[number] {
+  const role = normalizeKey(globalRole);
+  if (role === "admin" || role === "dean") return "admin";
+  if (role === "faculty" || role === "ad" || role.startsWith("pd-") || role.startsWith("gpd-")) {
+    return "faculty";
+  }
+  if (role.startsWith("ea-") || staffGlobalRoles.has(role)) return "staff";
+  return "staff";
+}
+
+function normalizePersonCategory(value: string, globalRole: string) {
+  const category = normalizeKey(value);
+  if (!category) return inferPersonCategory(globalRole);
+  if (personCategories.includes(category as (typeof personCategories)[number])) {
+    return category as (typeof personCategories)[number];
+  }
+  return null;
+}
+
 function csvError(rowNumber: number, message: string): never {
   fail(`CSV row ${rowNumber}: ${message}`);
+}
+
+function roleActionError(message: string): never {
+  redirect(`/admin?adminTab=roles&error=${encodeURIComponent(message)}`);
 }
 
 export async function updateUserAccess(formData: FormData) {
@@ -130,16 +186,16 @@ export async function updateUserAccess(formData: FormData) {
   const parsed = z
     .object({
       id: postgresUuid,
-      status: z.enum(["pending", "active", "suspended"]),
-      global_role: z.enum(["admin", "dean", "staff", "faculty"]),
-      person_category: z.enum(["faculty", "staff", "admin"]),
+      status: z.enum(accountStatuses),
+      global_role: z.string().trim().min(1).max(120),
+      person_category: z.enum(personCategories),
       department: z.string().trim().max(200),
       title: z.string().trim().max(200),
     })
     .safeParse(Object.fromEntries(formData));
   if (!parsed.success) fail("Invalid user access values.");
-  const admin = createAdminClient();
-  const { error } = await admin
+  const supabase = await createClient();
+  const { error } = await supabase
     .from("profiles")
     .update({
       status: parsed.data.status,
@@ -321,11 +377,12 @@ export async function importPersonnelCsv(formData: FormData) {
   if (!rows.length) fail("CSV file has no personnel rows.");
   if (rows.length > 500) fail("CSV import is limited to 500 rows.");
 
-  const admin = createAdminClient();
+  const authAdmin = createAdminClient();
+  const supabase = await createClient();
   const [profilesResult, committeesResult, rolesResult] = await Promise.all([
-    admin.from("profiles").select("id, email, full_name"),
-    admin.from("committees").select("id, name, short_name").eq("status", "active"),
-    admin.from("committee_roles").select("id, name, access_level"),
+    supabase.from("profiles").select("id, email, full_name"),
+    supabase.from("committees").select("id, name, short_name").eq("status", "active"),
+    supabase.from("committee_roles").select("id, name, access_level"),
   ]);
   if (profilesResult.error) fail(profilesResult.error.message);
   if (committeesResult.error) fail(committeesResult.error.message);
@@ -352,7 +409,7 @@ export async function importPersonnelCsv(formData: FormData) {
       roles.filter((role) => role.access_level === level),
     ]),
   );
-  const existingMembershipsResult = await admin
+  const existingMembershipsResult = await supabase
     .from("committee_members")
     .select("id, committee_id, profile_id");
   if (existingMembershipsResult.error) fail(existingMembershipsResult.error.message);
@@ -367,6 +424,7 @@ export async function importPersonnelCsv(formData: FormData) {
   let invitedCount = 0;
   let updatedCount = 0;
   let membershipCount = 0;
+  let createdRoleCount = 0;
   const seenEmails = new Set<string>();
 
   for (const [index, row] of rows.entries()) {
@@ -374,7 +432,7 @@ export async function importPersonnelCsv(formData: FormData) {
     const email = normalizeCsvValue(row, "email").toLowerCase();
     const fullName = normalizeCsvValue(row, "full_name");
     const committeeName = normalizeCsvValue(row, "committee");
-    const roleName = normalizeCsvValue(row, "role");
+    const roleName = normalizeRoleName(normalizeCsvValue(row, "role"));
     if (!email || !z.email().safeParse(email).success) csvError(rowNumber, "valid email required.");
     if (!fullName) csvError(rowNumber, "full_name is required.");
     if (!committeeName) csvError(rowNumber, "committee is required.");
@@ -382,30 +440,55 @@ export async function importPersonnelCsv(formData: FormData) {
 
     const committee = committeesByReference.get(normalizeKey(committeeName));
     if (!committee) csvError(rowNumber, `committee "${committeeName}" was not found.`);
-    const role =
+    let role =
       rolesByName.get(normalizeKey(roleName)) ??
       (rolesByAccessLevel.get(normalizeKey(roleName))?.length === 1
         ? rolesByAccessLevel.get(normalizeKey(roleName))![0]
         : undefined);
-    if (!role) csvError(rowNumber, `role "${roleName}" was not found.`);
+    if (!role) {
+      if (roleName.length > 80) csvError(rowNumber, "role must be 80 characters or fewer.");
+      const { data, error } = await supabase
+        .from("committee_roles")
+        .insert({
+          name: roleName,
+          access_level: "member",
+          sort_order: 100 + createdRoleCount,
+        })
+        .select("id, name, access_level")
+        .single();
+      if (error) csvError(rowNumber, error.message);
+      role = data!;
+      rolesByName.set(normalizeKey(role.name), role);
+      createdRoleCount += 1;
+    }
 
-    const status = normalizeCsvValue(row, "status").toLowerCase() || "active";
-    const globalRole = normalizeCsvValue(row, "global_role").toLowerCase() || "faculty";
-    const personCategory =
-      normalizeCsvValue(row, "person_category").toLowerCase() ||
-      (globalRole === "admin" ? "admin" : globalRole === "staff" ? "staff" : "faculty");
+    const status = normalizeAccountStatus(normalizeCsvValue(row, "status"));
+    if (!status) {
+      csvError(
+        rowNumber,
+        "status must be blank, active, pending, suspended, research leave, leave, or sabbatical.",
+      );
+    }
+    const globalRole = normalizeProfileGlobalRole(normalizeCsvValue(row, "global_role"));
+    const personCategory = normalizePersonCategory(
+      normalizeCsvValue(row, "person_category"),
+      globalRole,
+    );
+    if (!personCategory) {
+      csvError(rowNumber, "person_category must be blank, faculty, staff, or admin.");
+    }
     const access = z
       .object({
-        status: z.enum(["pending", "active", "suspended"]),
-        global_role: z.enum(["admin", "dean", "staff", "faculty"]),
-        person_category: z.enum(["faculty", "staff", "admin"]),
+        status: z.enum(accountStatuses),
+        global_role: z.string().trim().min(1).max(120),
+        person_category: z.enum(personCategories),
       })
       .safeParse({ status, global_role: globalRole, person_category: personCategory });
-    if (!access.success) csvError(rowNumber, "status, global_role, or person_category is invalid.");
+    if (!access.success) csvError(rowNumber, "status or global_role is invalid.");
 
     let profile = profilesByEmail.get(email);
     if (!profile) {
-      const { data, error } = await admin.auth.admin.inviteUserByEmail(email, {
+      const { data, error } = await authAdmin.auth.admin.inviteUserByEmail(email, {
         data: { full_name: fullName },
         redirectTo: `${env.NEXT_PUBLIC_APP_URL}/auth/callback?next=/reset-password`,
       });
@@ -417,7 +500,7 @@ export async function importPersonnelCsv(formData: FormData) {
     }
 
     if (!seenEmails.has(email)) {
-      const { error } = await admin
+      const { error } = await supabase
         .from("profiles")
         .update({
           full_name: fullName,
@@ -436,13 +519,13 @@ export async function importPersonnelCsv(formData: FormData) {
     const pairKey = `${committee.id}:${profile.id}`;
     const existingMembershipId = membershipIdsByPair.get(pairKey);
     if (existingMembershipId) {
-      const { error } = await admin
+      const { error } = await supabase
         .from("committee_members")
         .update({ role_id: role.id })
         .eq("id", existingMembershipId);
       if (error) csvError(rowNumber, error.message);
     } else {
-      const { data, error } = await admin
+      const { data, error } = await supabase
         .from("committee_members")
         .insert({ committee_id: committee.id, profile_id: profile.id, role_id: role.id })
         .select("id")
@@ -457,16 +540,106 @@ export async function importPersonnelCsv(formData: FormData) {
     actor.id,
     "auth_user.personnel_csv_imported",
     null,
-    `${updatedCount} profiles, ${membershipCount} memberships, ${invitedCount} invitations`,
+    `${updatedCount} profiles, ${membershipCount} memberships, ${invitedCount} invitations, ${createdRoleCount} roles`,
   );
   revalidatePath("/admin");
   revalidatePath("/personnel");
   revalidatePath("/committees");
   redirect(
     `/admin?message=${encodeURIComponent(
-      `CSV imported: ${updatedCount} profiles, ${membershipCount} memberships, ${invitedCount} invitations sent.`,
+      `CSV imported: ${updatedCount} profiles, ${membershipCount} memberships, ${invitedCount} invitations sent, ${createdRoleCount} roles created.`,
     )}`,
   );
+}
+
+export async function createCommitteeRole(formData: FormData) {
+  await assertTrustedOrigin();
+  const actor = await requireAdmin();
+  const parsed = z
+    .object({
+      name: z.string().trim().min(1).max(80).transform(normalizeRoleName),
+      access_level: z.enum(["chair", "staff", "member"]),
+    })
+    .safeParse(Object.fromEntries(formData));
+  if (!parsed.success) roleActionError("Invalid role.");
+  const supabase = await createClient();
+  const { error } = await supabase.from("committee_roles").insert({
+    name: parsed.data.name,
+    access_level: parsed.data.access_level,
+    sort_order: 100,
+  });
+  if (error) roleActionError(error.message);
+  await audit(actor.id, "committee_role.created", null, parsed.data.name, "committee_roles");
+  revalidatePath("/admin");
+  revalidatePath("/settings");
+  revalidatePath("/committees");
+  redirect(`/admin?adminTab=roles&message=${encodeURIComponent(`${parsed.data.name} created.`)}`);
+}
+
+export async function updateCommitteeRole(formData: FormData) {
+  await assertTrustedOrigin();
+  const actor = await requireAdmin();
+  const parsed = z
+    .object({
+      id: postgresUuid,
+      name: z.string().trim().min(1).max(80).transform(normalizeRoleName),
+      access_level: z.enum(["chair", "staff", "member"]),
+    })
+    .safeParse(Object.fromEntries(formData));
+  if (!parsed.success) roleActionError("Invalid role.");
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("committee_roles")
+    .update({ name: parsed.data.name, access_level: parsed.data.access_level })
+    .eq("id", parsed.data.id);
+  if (error) roleActionError(error.message);
+  await audit(
+    actor.id,
+    "committee_role.updated",
+    parsed.data.id,
+    parsed.data.name,
+    "committee_roles",
+  );
+  revalidatePath("/admin");
+  revalidatePath("/settings");
+  revalidatePath("/committees");
+  redirect(`/admin?adminTab=roles&message=${encodeURIComponent(`${parsed.data.name} updated.`)}`);
+}
+
+export async function deleteCommitteeRole(formData: FormData) {
+  await assertTrustedOrigin();
+  const actor = await requireAdmin();
+  const parsed = z
+    .object({
+      id: postgresUuid,
+      name: z.string().trim().min(1),
+      is_system: z.enum(["true", "false"]),
+    })
+    .safeParse(Object.fromEntries(formData));
+  if (!parsed.success) roleActionError("Invalid role.");
+  if (parsed.data.is_system === "true") roleActionError("System roles cannot be deleted.");
+  const supabase = await createClient();
+  const { count, error: countError } = await supabase
+    .from("committee_members")
+    .select("id", { count: "exact", head: true })
+    .eq("role_id", parsed.data.id);
+  if (countError) roleActionError(countError.message);
+  if ((count ?? 0) > 0) {
+    roleActionError(`Cannot delete ${parsed.data.name}; it is assigned to ${count} members.`);
+  }
+  const { error } = await supabase.from("committee_roles").delete().eq("id", parsed.data.id);
+  if (error) roleActionError(error.message);
+  await audit(
+    actor.id,
+    "committee_role.deleted",
+    parsed.data.id,
+    parsed.data.name,
+    "committee_roles",
+  );
+  revalidatePath("/admin");
+  revalidatePath("/settings");
+  revalidatePath("/committees");
+  redirect(`/admin?adminTab=roles&message=${encodeURIComponent(`${parsed.data.name} deleted.`)}`);
 }
 
 export async function sendPasswordReset(formData: FormData) {
@@ -501,6 +674,36 @@ export async function deleteUser(formData: FormData) {
   const { error } = await admin.auth.admin.deleteUser(parsed.id, false);
   if (error) fail(error.message);
   revalidatePath("/admin");
+}
+
+export async function deleteUsers(formData: FormData) {
+  await assertTrustedOrigin();
+  const actor = await requireAdmin();
+  const parsed = z.array(postgresUuid).min(1).max(100).safeParse(formData.getAll("ids"));
+  if (!parsed.success) fail("Select at least one valid user to delete.");
+  const ids = [...new Set(parsed.data)];
+  if (ids.includes(actor.id)) fail("You cannot delete your own administrator account.");
+
+  const supabase = await createClient();
+  const { data: profiles, error: profilesError } = await supabase
+    .from("profiles")
+    .select("id, email")
+    .in("id", ids);
+  if (profilesError) fail(profilesError.message);
+  if (!profiles?.length) fail("No matching users were found.");
+
+  const admin = createAdminClient();
+  for (const profile of profiles) {
+    await audit(actor.id, "auth_user.deleted", profile.id, profile.email);
+    const { error } = await admin.auth.admin.deleteUser(profile.id, false);
+    if (error) fail(error.message);
+  }
+
+  revalidatePath("/admin");
+  revalidatePath("/personnel");
+  revalidatePath("/committees");
+  revalidatePath("/dashboard");
+  redirect(`/admin?message=${encodeURIComponent(`${profiles.length} users deleted.`)}`);
 }
 
 export async function updateCommitteeStatus(formData: FormData) {

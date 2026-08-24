@@ -1,5 +1,5 @@
 begin;
-select plan(7);
+select plan(9);
 
 select has_column('public', 'committees', 'color', 'committees have an assigned colour');
 
@@ -63,6 +63,21 @@ select set_config(
   true
 );
 select ok((select count(*) from public.activity_log) > 0, 'administrators see all activity');
+select lives_ok(
+  $$delete from public.committees where id = '10000000-0000-0000-0000-000000000002'$$,
+  'committee delete writes audit activity without violating activity_log committee FK'
+);
+select ok(
+  exists (
+    select 1
+    from public.activity_log
+    where event_type = 'committees.delete'
+      and entity_id = '10000000-0000-0000-0000-000000000002'
+      and committee_id is null
+      and details ->> 'committee_id' = '10000000-0000-0000-0000-000000000002'
+  ),
+  'committee delete audit keeps the deleted committee id in details'
+);
 
 select * from finish();
 rollback;

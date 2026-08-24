@@ -18,7 +18,7 @@ import {
   UserPlus,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
-import { requireActiveProfile, canManageAllCommittees } from "@/lib/auth";
+import { canManageAllCommittees, isAdminProfile, requireActiveProfile } from "@/lib/auth";
 import { Badge, Card, buttonClass, inputClass, secondaryButtonClass } from "@/components/ui";
 import { SubmitButton } from "@/components/submit-button";
 import { ConfirmSubmit } from "@/components/confirm-submit";
@@ -153,12 +153,12 @@ export default async function CommitteeDetailPage({
   const canEditContent = managesAll || ownAccess === "chair" || ownAccess === "staff";
   const canPlanMeetings = ownAccess === "chair" || ownAccess === "staff";
   const canFinalizeMeetings = ownAccess === "chair";
-  const canUnlockMeetings = profile.global_role === "admin" || ownAccess === "staff";
+  const isAdmin = isAdminProfile(profile);
+  const canUnlockMeetings = isAdmin || ownAccess === "staff";
   const canArchiveMeetings = managesAll || canPlanMeetings;
-  const canDeleteMeetings = profile.global_role === "admin";
+  const canDeleteMeetings = isAdmin;
   const canEditHeader = managesAll || ownAccess === "chair";
-  const canChooseColor =
-    profile.global_role === "admin" || ownAccess === "chair" || ownAccess === "staff";
+  const canChooseColor = isAdmin || ownAccess === "chair" || ownAccess === "staff";
   const canEditCommitteeInfo = canEditHeader || canChooseColor;
   const assignedIds = new Set(memberships.map((membership) => membership.profile_id));
   const availablePeople = people.filter((person) => !assignedIds.has(person.id));

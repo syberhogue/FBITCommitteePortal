@@ -4,7 +4,9 @@ import {
   Activity,
   Archive,
   Download,
+  LockKeyhole,
   MailPlus,
+  Plus,
   ShieldCheck,
   Trash2,
   Upload,
@@ -18,14 +20,17 @@ import { createClient } from "@/lib/supabase/server";
 import { Badge, Card, PageHeader, inputClass, secondaryButtonClass } from "@/components/ui";
 import { SubmitButton } from "@/components/submit-button";
 import { ConfirmSubmit } from "@/components/confirm-submit";
-import { AdminUserRow } from "@/components/admin-user-row";
+import { AdminUserManagement } from "@/components/admin-user-management";
 import { formatBytes, formatDate } from "@/lib/utils";
 import {
+  createCommitteeRole,
   deleteCommittee,
+  deleteCommitteeRole,
   importCommitteesCsv,
   importPersonnelCsv,
   inviteUser,
   updateCommitteeStatus,
+  updateCommitteeRole,
 } from "./admin-actions";
 
 export default async function AdminPage({
@@ -37,6 +42,11 @@ export default async function AdminPage({
     error?: string;
     message?: string;
     adminTab?: string;
+    userFilterKind?: string;
+    userFilterValue?: string;
+    userRole?: string;
+    userGlobalRole?: string;
+    userDepartment?: string;
   }>;
 }) {
   await connection();
@@ -45,11 +55,12 @@ export default async function AdminPage({
   const supabase = await createClient();
   const activeTab =
     params.adminTab === "committees" ||
+    params.adminTab === "roles" ||
     params.adminTab === "analytics" ||
     params.adminTab === "audit"
       ? params.adminTab
       : "users";
-  const tabClass = (tab: "users" | "committees" | "analytics" | "audit") =>
+  const tabClass = (tab: "users" | "committees" | "roles" | "analytics" | "audit") =>
     [
       "flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold transition",
       activeTab === tab ? "bg-[#003C71] text-white" : "text-slate-600 hover:bg-slate-100",
@@ -61,6 +72,7 @@ export default async function AdminPage({
     profilesResult,
     committeesResult,
     membershipsResult,
+    rolesResult,
     meetingsResult,
     actionsResult,
     goalsResult,
@@ -73,7 +85,8 @@ export default async function AdminPage({
       .from("committees")
       .select("id, name, short_name, status, color, created_at")
       .order("name"),
-    supabase.from("committee_members").select("id, role_id, committee_id"),
+    supabase.from("committee_members").select("id, role_id, committee_id, profile_id"),
+    supabase.from("committee_roles").select("*").order("sort_order").order("name"),
     supabase.from("meetings").select("id, committee_id, created_at"),
     supabase.from("action_items").select("id, priority, completed, created_at, completed_at"),
     supabase.from("goals").select("id, completed"),
@@ -87,19 +100,17 @@ export default async function AdminPage({
   const authUsers = authResult.data?.users ?? [];
   const profiles = profilesResult.data ?? [];
   const committees = committeesResult.data ?? [];
-  const authById = new Map(authUsers.map((user) => [user.id, user]));
-  const visibleProfiles = profiles.filter(
-    (profile) =>
-      !params.q ||
-      `${profile.full_name} ${profile.email}`.toLowerCase().includes(params.q.toLowerCase()),
-  );
   const actions = actionsResult.data ?? [];
   const goals = goalsResult.data ?? [];
   const memberships = membershipsResult.data ?? [];
+  const roles = rolesResult.data ?? [];
   const meetings = meetingsResult.data ?? [];
   const latestBackup = backupsResult.data?.find((run) => run.status === "succeeded");
+  const authById = new Map(authUsers.map((user) => [user.id, user]));
   const membershipCountsByCommittee = new Map<string, number>();
   const meetingCountsByCommittee = new Map<string, number>();
+  const membershipCountsByRole = new Map<string, number>();
+  const roleIdsByProfile = new Map<string, Set<string>>();
   memberships.forEach((membership) =>
     membershipCountsByCommittee.set(
       membership.committee_id,
@@ -112,6 +123,68 @@ export default async function AdminPage({
       (meetingCountsByCommittee.get(meeting.committee_id) ?? 0) + 1,
     ),
   );
+  memberships.forEach((membership) =>
+    membershipCountsByRole.set(
+      membership.role_id,
+      (membershipCountsByRole.get(membership.role_id) ?? 0) + 1,
+    ),
+  );
+  memberships.forEach((membership) => {
+    const roleIds = roleIdsByProfile.get(membership.profile_id) ?? new Set<string>();
+    roleIds.add(membership.role_id);
+    roleIdsByProfile.set(membership.profile_id, roleIds);
+  });
+  const selectedRoleFilter =
+    params.userRole ?? (params.userFilterKind === "role" ? params.userFilterValue : "") ?? "";
+  const selectedGlobalRoleFilter =
+    params.userGlobalRole ??
+    (params.userFilterKind === "global_role" ? params.userFilterValue : "") ??
+    "";
+  const selectedDepartmentFilter =
+    params.userDepartment ??
+    (params.userFilterKind === "department" ? params.userFilterValue : "") ??
+    "";
+  const clearUserFiltersHref = () => {
+    const query = new URLSearchParams({ adminTab: "users" });
+    if (params.q) query.set("q", params.q);
+    return `/admin?${query.toString()}`;
+  };
+  const globalRoleFilters = [
+    ...new Set(
+      profiles
+        .map((profile) => profile.global_role.trim())
+        .filter((globalRole) => globalRole.length > 0),
+    ),
+  ].sort((first, second) => first.localeCompare(second));
+  const departmentFilters = [
+    ...new Set(
+      profiles
+        .map((profile) => profile.department?.trim() ?? "")
+        .filter((department) => department.length > 0),
+    ),
+  ].sort((first, second) => first.localeCompare(second));
+  const visibleProfiles = profiles.filter((profile) => {
+    const matchesSearch =
+      !params.q ||
+      `${profile.full_name} ${profile.email}`.toLowerCase().includes(params.q.toLowerCase());
+    if (!matchesSearch) return false;
+    if (
+      selectedRoleFilter &&
+      !(roleIdsByProfile.get(profile.id)?.has(selectedRoleFilter) ?? false)
+    ) {
+      return false;
+    }
+    if (selectedGlobalRoleFilter && profile.global_role.trim() !== selectedGlobalRoleFilter) {
+      return false;
+    }
+    if (
+      selectedDepartmentFilter &&
+      (profile.department?.trim() ?? "") !== selectedDepartmentFilter
+    ) {
+      return false;
+    }
+    return true;
+  });
   const metrics = [
     {
       label: "Active users",
@@ -181,6 +254,9 @@ export default async function AdminPage({
             <Link href="/admin?adminTab=committees" className={tabClass("committees")}>
               <ShieldCheck className="size-4" /> Committee Management
             </Link>
+            <Link href="/admin?adminTab=roles" className={tabClass("roles")}>
+              <UserRoundCog className="size-4" /> Role Management
+            </Link>
             <Link href="/admin?adminTab=analytics" className={tabClass("analytics")}>
               <Activity className="size-4" /> Governance Analytics
             </Link>
@@ -201,6 +277,16 @@ export default async function AdminPage({
                     </p>
                   </div>
                   <form className="flex gap-2">
+                    <input type="hidden" name="adminTab" value="users" />
+                    {selectedRoleFilter && (
+                      <input type="hidden" name="userRole" value={selectedRoleFilter} />
+                    )}
+                    {selectedGlobalRoleFilter && (
+                      <input type="hidden" name="userGlobalRole" value={selectedGlobalRoleFilter} />
+                    )}
+                    {selectedDepartmentFilter && (
+                      <input type="hidden" name="userDepartment" value={selectedDepartmentFilter} />
+                    )}
                     <input
                       name="q"
                       defaultValue={params.q}
@@ -210,19 +296,75 @@ export default async function AdminPage({
                     <button className={secondaryButtonClass}>Search</button>
                   </form>
                 </div>
-                <div className="divide-y divide-slate-100">
-                  {visibleProfiles.map((profile) => {
-                    const authUser = authById.get(profile.id);
-                    return (
-                      <AdminUserRow
-                        key={profile.id}
-                        profile={profile}
-                        isCurrentUser={profile.id === actor.id}
-                        lastSignIn={authUser?.last_sign_in_at}
-                      />
-                    );
-                  })}
+                <div className="border-b border-slate-100 bg-slate-50 p-3">
+                  <form className="grid gap-2 md:grid-cols-[1fr_1fr_1fr_auto_auto] md:items-end">
+                    <input type="hidden" name="adminTab" value="users" />
+                    {params.q && <input type="hidden" name="q" value={params.q} />}
+                    <label className="space-y-1">
+                      <span className="text-[11px] font-bold uppercase text-slate-500">Role</span>
+                      <select
+                        name="userRole"
+                        defaultValue={selectedRoleFilter}
+                        className={inputClass}
+                      >
+                        <option value="">All roles</option>
+                        {roles.map((role) => (
+                          <option key={role.id} value={role.id}>
+                            {role.name} ({membershipCountsByRole.get(role.id) ?? 0})
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="space-y-1">
+                      <span className="text-[11px] font-bold uppercase text-slate-500">
+                        Global role
+                      </span>
+                      <select
+                        name="userGlobalRole"
+                        defaultValue={selectedGlobalRoleFilter}
+                        className={inputClass}
+                      >
+                        <option value="">All global roles</option>
+                        {globalRoleFilters.map((globalRole) => (
+                          <option key={globalRole} value={globalRole}>
+                            {globalRole}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="space-y-1">
+                      <span className="text-[11px] font-bold uppercase text-slate-500">
+                        Department
+                      </span>
+                      <select
+                        name="userDepartment"
+                        defaultValue={selectedDepartmentFilter}
+                        className={inputClass}
+                      >
+                        <option value="">All departments</option>
+                        {departmentFilters.map((department) => (
+                          <option key={department} value={department}>
+                            {department}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <button className={secondaryButtonClass}>Apply</button>
+                    <Link href={clearUserFiltersHref()} className={secondaryButtonClass}>
+                      Clear
+                    </Link>
+                  </form>
                 </div>
+                <AdminUserManagement
+                  users={visibleProfiles.map((profile) => {
+                    const authUser = authById.get(profile.id);
+                    return {
+                      profile,
+                      isCurrentUser: profile.id === actor.id,
+                      lastSignIn: authUser?.last_sign_in_at,
+                    };
+                  })}
+                />
               </Card>
               <div className="space-y-6">
                 <Card className="p-5">
@@ -252,7 +394,9 @@ export default async function AdminPage({
                   </h2>
                   <p className="mt-2 text-xs text-slate-500">
                     One row per committee assignment. Required columns: email, full_name, committee,
-                    role. Optional: status, global_role, person_category, department, title.
+                    role. Optional: status, global_role, person_category, department, title. Global
+                    role accepts organizational roles; blank person_category is inferred.
+                    Leave-style status values import as active accounts.
                   </p>
                   <a
                     href="/api/admin/templates/personnel"
@@ -422,6 +566,117 @@ export default async function AdminPage({
                   </p>
                 </Card>
               </div>
+            </div>
+          )}
+
+          {activeTab === "roles" && (
+            <div className="grid gap-6 xl:grid-cols-[1fr_22rem]">
+              <Card className="overflow-hidden">
+                <div className="flex flex-col justify-between gap-3 border-b border-slate-100 p-5 sm:flex-row sm:items-center">
+                  <div>
+                    <h2 className="font-bold">Role management</h2>
+                    <p className="text-xs text-slate-500">
+                      Role names are display labels. Access level controls what members can do.
+                    </p>
+                  </div>
+                  <Badge tone="indigo">{roles.length} total</Badge>
+                </div>
+                <div className="divide-y divide-slate-100">
+                  {roles.map((role) => {
+                    const memberCount = membershipCountsByRole.get(role.id) ?? 0;
+                    return (
+                      <div
+                        key={role.id}
+                        className="grid gap-3 p-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center"
+                      >
+                        <form
+                          action={updateCommitteeRole}
+                          className="grid min-w-0 gap-2 md:grid-cols-[minmax(10rem,1fr)_10rem_auto]"
+                        >
+                          <input type="hidden" name="id" value={role.id} />
+                          <input
+                            name="name"
+                            required
+                            defaultValue={role.name}
+                            className={inputClass}
+                            aria-label={`${role.name} role name`}
+                          />
+                          <select
+                            name="access_level"
+                            defaultValue={role.access_level}
+                            className={inputClass}
+                            aria-label={`${role.name} access level`}
+                          >
+                            <option value="member">Member</option>
+                            <option value="staff">Staff</option>
+                            <option value="chair">Chair</option>
+                          </select>
+                          <SubmitButton className="min-h-10">Save</SubmitButton>
+                        </form>
+                        <div className="flex flex-wrap items-center gap-2 lg:justify-end">
+                          <Badge
+                            tone={
+                              role.access_level === "chair"
+                                ? "indigo"
+                                : role.access_level === "staff"
+                                  ? "green"
+                                  : "slate"
+                            }
+                          >
+                            {role.access_level}
+                          </Badge>
+                          <span className="text-xs text-slate-500">
+                            {memberCount} {memberCount === 1 ? "member" : "members"}
+                          </span>
+                          {role.is_system ? (
+                            <span className="inline-flex items-center gap-1 text-xs text-slate-400">
+                              <LockKeyhole className="size-3.5" /> System
+                            </span>
+                          ) : (
+                            <form action={deleteCommitteeRole}>
+                              <input type="hidden" name="id" value={role.id} />
+                              <input type="hidden" name="name" value={role.name} />
+                              <input
+                                type="hidden"
+                                name="is_system"
+                                value={String(role.is_system)}
+                              />
+                              <ConfirmSubmit
+                                message={`Delete the ${role.name} role?`}
+                                className="min-h-9 px-2 py-1 text-xs"
+                              >
+                                <Trash2 className="size-3.5" /> Delete
+                              </ConfirmSubmit>
+                            </form>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {!roles.length && (
+                    <div className="p-8 text-center text-sm text-slate-500">
+                      No roles have been created yet.
+                    </div>
+                  )}
+                </div>
+              </Card>
+              <Card className="h-fit p-5">
+                <h2 className="flex items-center gap-2 font-bold">
+                  <Plus className="size-4 text-indigo-600" /> Add role
+                </h2>
+                <form action={createCommitteeRole} className="mt-4 space-y-3">
+                  <input name="name" required className={inputClass} placeholder="Role name" />
+                  <select name="access_level" defaultValue="member" className={inputClass}>
+                    <option value="member">Member access</option>
+                    <option value="staff">Staff access</option>
+                    <option value="chair">Chair access</option>
+                  </select>
+                  <SubmitButton className="w-full">Add role</SubmitButton>
+                </form>
+                <p className="mt-3 text-[11px] text-slate-500">
+                  Unknown CSV roles are created automatically with member access.
+                </p>
+              </Card>
             </div>
           )}
 

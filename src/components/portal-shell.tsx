@@ -3,6 +3,7 @@ import { BarChart3, Landmark, LayoutDashboard, Settings, ShieldCheck, Users } fr
 import type { Profile } from "@/types/database";
 import { GlobalSearch } from "@/components/global-search";
 import { signOut } from "@/app/(auth)/actions";
+import { isAdminProfile } from "@/lib/auth";
 import { initials } from "@/lib/utils";
 
 const navigation = [
@@ -67,7 +68,7 @@ export function PortalShell({
               <Settings className="size-4" aria-hidden /> Settings
             </Link>
           )}
-          {profile.global_role === "admin" && (
+          {isAdminProfile(profile) && (
             <Link
               href="/admin"
               className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium hover:bg-[#005793]"

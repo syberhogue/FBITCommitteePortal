@@ -9,7 +9,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
-import { requireActiveProfile } from "@/lib/auth";
+import { isAdminProfile, requireActiveProfile } from "@/lib/auth";
 import { Card, Badge } from "@/components/ui";
 import { RealtimeActivity } from "@/components/realtime-activity";
 import { currentTimestamp, formatDate } from "@/lib/utils";
@@ -373,7 +373,7 @@ export default async function DashboardPage() {
               initial={activityResult.data ?? []}
               actors={activityActorsResult.data ?? []}
               allowedCommitteeIds={[...ownCommitteeIds]}
-              showAll={profile.global_role === "admin"}
+              showAll={isAdminProfile(profile)}
             />
           </div>
         </Card>

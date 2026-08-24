@@ -708,7 +708,7 @@ export type Database = {
           department: string | null;
           email: string;
           full_name: string;
-          global_role: Database["public"]["Enums"]["global_role"];
+          global_role: string;
           id: string;
           last_seen_at: string | null;
           person_category: Database["public"]["Enums"]["person_category"];
@@ -722,7 +722,7 @@ export type Database = {
           department?: string | null;
           email: string;
           full_name: string;
-          global_role?: Database["public"]["Enums"]["global_role"];
+          global_role?: string;
           id: string;
           last_seen_at?: string | null;
           person_category?: Database["public"]["Enums"]["person_category"];
@@ -736,7 +736,7 @@ export type Database = {
           department?: string | null;
           email?: string;
           full_name?: string;
-          global_role?: Database["public"]["Enums"]["global_role"];
+          global_role?: string;
           id?: string;
           last_seen_at?: string | null;
           person_category?: Database["public"]["Enums"]["person_category"];
@@ -922,7 +922,6 @@ export type Database = {
       backup_status: "running" | "succeeded" | "failed";
       committee_access_level: "chair" | "staff" | "member";
       committee_status: "active" | "archived";
-      global_role: "admin" | "dean" | "staff" | "faculty";
       meeting_status: "planned" | "scheduled" | "in_progress" | "completed" | "cancelled";
       person_category: "faculty" | "staff" | "admin";
     };
@@ -1054,7 +1053,6 @@ export const Constants = {
       backup_status: ["running", "succeeded", "failed"],
       committee_access_level: ["chair", "staff", "member"],
       committee_status: ["active", "archived"],
-      global_role: ["admin", "dean", "staff", "faculty"],
       meeting_status: ["planned", "scheduled", "in_progress", "completed", "cancelled"],
       person_category: ["faculty", "staff", "admin"],
     },
