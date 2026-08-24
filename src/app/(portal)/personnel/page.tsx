@@ -82,22 +82,22 @@ export default async function PersonnelPage({
       <Card className="overflow-hidden">
         <div className="divide-y divide-slate-100">
           {people?.map((person) => (
-            <div key={person.id} className="flex flex-col gap-3 p-5 sm:flex-row sm:items-center">
-              <span className="grid size-11 shrink-0 place-items-center rounded-full bg-indigo-100 text-sm font-bold text-indigo-700">
+            <div key={person.id} className="flex flex-col gap-2 px-4 py-3 sm:flex-row sm:items-center">
+              <span className="grid size-8 shrink-0 place-items-center rounded-full bg-indigo-100 text-xs font-bold text-indigo-700">
                 {initials(person.full_name)}
               </span>
               <div className="min-w-0 flex-1">
                 <p className="font-semibold text-slate-900">{person.full_name}</p>
-                <p className="text-sm text-slate-500">
+                <p className="truncate text-xs text-slate-500">
                   {[person.title, person.department].filter(Boolean).join(" · ") ||
                     "No department or title"}
                 </p>
-                <div className="mt-2 flex flex-wrap gap-2">
+                <div className="mt-1 flex flex-wrap gap-1.5">
                   {(assignmentsByPerson.get(person.id) ?? []).map((assignment) => (
                     <Link
                       key={assignment.committeeId}
                       href={`/committees/${assignment.committeeId}`}
-                      className={`rounded-full px-2.5 py-1 text-xs font-semibold hover:underline ${
+                      className={`rounded-full px-2 py-0.5 text-[11px] font-semibold hover:underline ${
                         assignment.accessLevel === "chair"
                           ? "bg-[#003C71] text-white"
                           : assignment.accessLevel === "staff"
@@ -127,9 +127,9 @@ export default async function PersonnelPage({
               </Badge>
               <a
                 href={`mailto:${person.email}`}
-                className="flex items-center gap-1.5 text-sm text-indigo-600 hover:underline"
+                className="flex items-center gap-1 text-xs text-indigo-600 hover:underline"
               >
-                <Mail className="size-4" />
+                <Mail className="size-3.5" />
                 {person.email}
               </a>
             </div>

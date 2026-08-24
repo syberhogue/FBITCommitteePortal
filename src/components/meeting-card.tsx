@@ -473,6 +473,14 @@ export function MeetingCard({
               <SubmitButton name="intent" value="save">
                 Save plan
               </SubmitButton>
+              <input
+                name="template_name"
+                className={`${inputClass} sm:w-64`}
+                placeholder="Committee template name"
+              />
+              <SubmitButton name="intent" value="save_template">
+                Save agenda as template
+              </SubmitButton>
               {canFinalize && (
                 <SubmitButton name="intent" value="finalize" pendingLabel="Finalizing…">
                   <CalendarCheck className="size-4" /> Finalize and schedule

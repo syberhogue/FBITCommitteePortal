@@ -178,6 +178,7 @@ export type Database = {
           created_at: string;
           id: string;
           sort_order: number;
+          template_id: string;
           title: string;
           updated_at: string;
         };
@@ -185,6 +186,7 @@ export type Database = {
           created_at?: string;
           id?: string;
           sort_order: number;
+          template_id: string;
           title: string;
           updated_at?: string;
         };
@@ -192,10 +194,61 @@ export type Database = {
           created_at?: string;
           id?: string;
           sort_order?: number;
+          template_id?: string;
           title?: string;
           updated_at?: string;
         };
-        Relationships: [];
+        Relationships: [
+          {
+            foreignKeyName: "agenda_template_items_template_id_fkey";
+            columns: ["template_id"];
+            isOneToOne: false;
+            referencedRelation: "agenda_templates";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      agenda_templates: {
+        Row: {
+          committee_id: string | null;
+          created_at: string;
+          created_by: string | null;
+          id: string;
+          name: string;
+          updated_at: string;
+        };
+        Insert: {
+          committee_id?: string | null;
+          created_at?: string;
+          created_by?: string | null;
+          id?: string;
+          name: string;
+          updated_at?: string;
+        };
+        Update: {
+          committee_id?: string | null;
+          created_at?: string;
+          created_by?: string | null;
+          id?: string;
+          name?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "agenda_templates_committee_id_fkey";
+            columns: ["committee_id"];
+            isOneToOne: false;
+            referencedRelation: "committees";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "agenda_templates_created_by_fkey";
+            columns: ["created_by"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+        ];
       };
       allowed_email_domains: {
         Row: {
@@ -345,6 +398,7 @@ export type Database = {
           mandate: string;
           name: string;
           search_vector: unknown;
+          short_name: string;
           status: Database["public"]["Enums"]["committee_status"];
           updated_at: string;
         };
@@ -356,6 +410,7 @@ export type Database = {
           mandate?: string;
           name: string;
           search_vector?: unknown;
+          short_name?: string;
           status?: Database["public"]["Enums"]["committee_status"];
           updated_at?: string;
         };
@@ -367,6 +422,7 @@ export type Database = {
           mandate?: string;
           name?: string;
           search_vector?: unknown;
+          short_name?: string;
           status?: Database["public"]["Enums"]["committee_status"];
           updated_at?: string;
         };

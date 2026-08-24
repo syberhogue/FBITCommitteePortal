@@ -141,7 +141,19 @@ export function MeetingWorkspace({
           compact
         />
       </div>
-      <SubmitButton>Save meeting notes and agenda</SubmitButton>
+      <div className="flex flex-wrap items-center gap-2">
+        <SubmitButton name="intent" value="save">
+          Save meeting notes and agenda
+        </SubmitButton>
+        <input
+          name="template_name"
+          className={`${inputClass} sm:w-64`}
+          placeholder="Committee template name"
+        />
+        <SubmitButton name="intent" value="save_template">
+          Save agenda as template
+        </SubmitButton>
+      </div>
     </form>
   );
 }

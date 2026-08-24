@@ -114,7 +114,7 @@ insert into public.meetings (
   '10000000-0000-0000-0000-000000000001',
   'Fall Planning Session',
   '2026-09-15 14:00:00-04',
-  'scheduled',
+  'planned',
   'Review curriculum proposals and confirm the fall work plan.',
   '',
   '00000000-0000-0000-0000-000000000003'
@@ -138,23 +138,18 @@ insert into public.meeting_agenda_item_assignees (agenda_item_id, profile_id) va
   ('21000000-0000-4000-8000-000000000001', '00000000-0000-0000-0000-000000000003'),
   ('21000000-0000-4000-8000-000000000002', '00000000-0000-0000-0000-000000000004');
 
-insert into public.action_items (
-  meeting_id, task, assignee_id, priority, created_by
-) values
-  (
-    '20000000-0000-0000-0000-000000000001',
-    'Update the course catalogue proposal',
-    '00000000-0000-0000-0000-000000000005',
-    'high',
-    '00000000-0000-0000-0000-000000000003'
-  ),
-  (
-    '20000000-0000-0000-0000-000000000001',
-    'Confirm registrar consultation dates',
-    '00000000-0000-0000-0000-000000000004',
-    'medium',
-    '00000000-0000-0000-0000-000000000003'
-  );
+set role authenticated;
+select set_config(
+  'request.jwt.claims',
+  '{"sub":"00000000-0000-0000-0000-000000000003","role":"authenticated"}',
+  false
+);
+update public.meetings
+set status = 'scheduled',
+    finalized_at = now(),
+    finalized_by = '00000000-0000-0000-0000-000000000003'
+where id = '20000000-0000-0000-0000-000000000001';
+reset role;
 
 insert into public.goals (committee_id, title, target_date, created_by) values
   (

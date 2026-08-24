@@ -36,28 +36,11 @@ export async function requireAdmin() {
 }
 
 export async function requireSettingsAccess() {
-  const profile = await requireActiveProfile();
-  if (!(await hasSettingsAccess(profile))) {
-    redirect("/dashboard?error=Settings access is not available to members.");
-  }
-  return profile;
+  return requireAdmin();
 }
 
 export async function hasSettingsAccess(profile: Profile) {
-  if (profile.global_role !== "faculty") return true;
-  const supabase = await createClient();
-  const { data: memberships } = await supabase
-    .from("committee_members")
-    .select("role_id")
-    .eq("profile_id", profile.id);
-  const roleIds = [...new Set((memberships ?? []).map((membership) => membership.role_id))];
-  if (!roleIds.length) return false;
-  const { data: elevatedRoles } = await supabase
-    .from("committee_roles")
-    .select("id")
-    .in("id", roleIds)
-    .in("access_level", ["chair", "staff"]);
-  return Boolean(elevatedRoles?.length);
+  return profile.global_role === "admin";
 }
 
 export function canManageAllCommittees(profile: Profile) {

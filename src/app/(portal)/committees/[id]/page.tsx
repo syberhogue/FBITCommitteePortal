@@ -12,6 +12,7 @@ import {
   FolderPlus,
   History as HistoryIcon,
   LockKeyhole,
+  Pencil,
   Plus,
   Trash2,
   UserPlus,
@@ -26,6 +27,10 @@ import { MeetingFocus } from "@/components/meeting-focus";
 import { CommitteeColorPicker } from "@/components/committee-color-picker";
 import { RichTextEditor } from "@/components/rich-text-editor";
 import { AgendaItemBuilder } from "@/components/agenda-item-builder";
+import {
+  AgendaTemplateSelector,
+  type AgendaTemplateOption,
+} from "@/components/agenda-template-selector";
 import { currentTimestamp, formatDate } from "@/lib/utils";
 import {
   addMember,
@@ -81,6 +86,7 @@ export default async function CommitteeDetailPage({
     expectationsResult,
     groupsResult,
     linksResult,
+    templatesResult,
     templateItemsResult,
     templateAssignmentsResult,
     attendanceResult,
@@ -105,6 +111,12 @@ export default async function CommitteeDetailPage({
     supabase.from("role_expectations").select("*").eq("committee_id", id),
     supabase.from("resource_groups").select("*").eq("committee_id", id).order("sort_order"),
     supabase.from("resource_links").select("*").order("sort_order"),
+    supabase
+      .from("agenda_templates")
+      .select("*")
+      .or(`committee_id.is.null,committee_id.eq.${id}`)
+      .order("committee_id", { nullsFirst: true })
+      .order("name"),
     supabase.from("agenda_template_items").select("*").order("sort_order"),
     supabase.from("agenda_template_item_assignees").select("*"),
     supabase.from("meeting_attendance").select("*"),
@@ -147,16 +159,25 @@ export default async function CommitteeDetailPage({
   const canEditHeader = managesAll || ownAccess === "chair";
   const canChooseColor =
     profile.global_role === "admin" || ownAccess === "chair" || ownAccess === "staff";
+  const canEditCommitteeInfo = canEditHeader || canChooseColor;
   const assignedIds = new Set(memberships.map((membership) => membership.profile_id));
   const availablePeople = people.filter((person) => !assignedIds.has(person.id));
+  const templates = templatesResult.data ?? [];
   const templateItems = templateItemsResult.data ?? [];
   const templateAssignments = templateAssignmentsResult.data ?? [];
-  const templateDraft = templateItems.map((item) => ({
-    id: item.id,
-    title: item.title,
-    assigneeIds: templateAssignments
-      .filter((assignment) => assignment.agenda_item_id === item.id)
-      .map((assignment) => assignment.profile_id),
+  const templateOptions: AgendaTemplateOption[] = templates.map((template) => ({
+    id: template.id,
+    name: template.name,
+    scope: template.committee_id ? "Committee" : "Global",
+    items: templateItems
+      .filter((item) => item.template_id === template.id)
+      .map((item) => ({
+        id: item.id,
+        title: item.title,
+        assigneeIds: templateAssignments
+          .filter((assignment) => assignment.agenda_item_id === item.id)
+          .map((assignment) => assignment.profile_id),
+      })),
   }));
   const agendaItemsFor = (meetingId: string) =>
     meetingAgendaItems.filter((item) => item.meeting_id === meetingId);
@@ -212,50 +233,94 @@ export default async function CommitteeDetailPage({
         className="overflow-hidden"
         style={{ borderTopColor: committee.color, borderTopWidth: 6 }}
       >
-        <div className="p-6" style={{ backgroundColor: `${committee.color}12` }}>
-          {canEditHeader ? (
-            <form action={updateCommittee} className="space-y-3">
-              <input type="hidden" name="id" value={id} />
-              <input
-                name="name"
-                defaultValue={committee.name}
-                required
-                className="w-full border-0 bg-transparent p-0 text-3xl font-bold tracking-tight focus:ring-0"
-                style={{ color: committee.color }}
-              />
-              <textarea
-                name="mandate"
-                defaultValue={committee.mandate}
-                rows={3}
-                className={inputClass}
-                placeholder="Committee mandate"
-              />
+        <div className="p-5" style={{ backgroundColor: `${committee.color}12` }}>
+          {canEditCommitteeInfo ? (
+            <details className="group">
+              <summary className="list-none [&::-webkit-details-marker]:hidden">
+                <div className="flex cursor-pointer flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-3">
+                      <h1
+                        className="text-2xl font-bold tracking-tight sm:text-3xl"
+                        style={{ color: committee.color }}
+                      >
+                        {committee.name}
+                      </h1>
+                      {committee.short_name && <Badge tone="slate">{committee.short_name}</Badge>}
+                      <Badge tone={committee.status === "active" ? "green" : "slate"}>
+                        {committee.status}
+                      </Badge>
+                    </div>
+                    <p className="mt-1 line-clamp-2 max-w-5xl text-sm text-slate-700">
+                      {committee.mandate || "No committee mandate has been recorded."}
+                    </p>
+                  </div>
+                  <span className={secondaryButtonClass}>
+                    <Pencil className="size-4" />
+                    <span className="group-open:hidden">Edit</span>
+                    <span className="hidden group-open:inline">Close</span>
+                  </span>
+                </div>
+              </summary>
+              <div className="mt-4 grid gap-4 border-t border-slate-200 pt-4 lg:grid-cols-[minmax(0,1fr)_auto]">
+                {canEditHeader && (
+                  <form action={updateCommittee} className="space-y-3">
+                    <input type="hidden" name="id" value={id} />
+                    <input
+                      name="name"
+                      defaultValue={committee.name}
+                      required
+                      className="w-full border-0 bg-transparent p-0 text-2xl font-bold tracking-tight focus:ring-0"
+                      style={{ color: committee.color }}
+                    />
+                    <input
+                      name="short_name"
+                      defaultValue={committee.short_name}
+                      required
+                      maxLength={40}
+                      className={`${inputClass} uppercase`}
+                      placeholder="Committee acronym"
+                    />
+                    <textarea
+                      name="mandate"
+                      defaultValue={committee.mandate}
+                      rows={3}
+                      className={inputClass}
+                      placeholder="Committee mandate"
+                    />
+                    <SubmitButton>Save committee</SubmitButton>
+                  </form>
+                )}
+                {canChooseColor && (
+                  <form
+                    action={updateCommitteeColor}
+                    className="flex flex-wrap items-end gap-4 rounded-lg border border-slate-200 bg-white/70 p-3"
+                  >
+                    <input type="hidden" name="id" value={id} />
+                    <CommitteeColorPicker defaultValue={committee.color} compact />
+                    <SubmitButton>Apply colour</SubmitButton>
+                  </form>
+                )}
+              </div>
+            </details>
+          ) : (
+            <div>
               <div className="flex flex-wrap items-center gap-3">
-                <SubmitButton>Save committee</SubmitButton>
+                <h1
+                  className="text-2xl font-bold tracking-tight sm:text-3xl"
+                  style={{ color: committee.color }}
+                >
+                  {committee.name}
+                </h1>
+                {committee.short_name && <Badge tone="slate">{committee.short_name}</Badge>}
                 <Badge tone={committee.status === "active" ? "green" : "slate"}>
                   {committee.status}
                 </Badge>
               </div>
-            </form>
-          ) : (
-            <div>
-              <h1 className="text-3xl font-bold tracking-tight" style={{ color: committee.color }}>
-                {committee.name}
-              </h1>
-              <div className="mt-3 rounded-xl border border-slate-300 bg-slate-100 p-4 text-sm text-slate-700">
+              <p className="mt-1 line-clamp-2 max-w-5xl text-sm text-slate-700">
                 {committee.mandate || "No committee mandate has been recorded."}
-              </div>
+              </p>
             </div>
-          )}
-          {canChooseColor && (
-            <form
-              action={updateCommitteeColor}
-              className="mt-5 flex flex-wrap items-end gap-4 border-t border-slate-200 pt-4"
-            >
-              <input type="hidden" name="id" value={id} />
-              <CommitteeColorPicker defaultValue={committee.color} compact />
-              <SubmitButton>Apply colour</SubmitButton>
-            </form>
           )}
         </div>
       </Card>
@@ -597,7 +662,7 @@ export default async function CommitteeDetailPage({
                       </div>
                       <div>
                         <h3 className="mb-2 text-sm font-bold text-slate-800">Agenda items</h3>
-                        <AgendaItemBuilder initialItems={templateDraft} people={people} />
+                        <AgendaTemplateSelector templates={templateOptions} people={people} />
                       </div>
                       <RichTextEditor name="goals" label="Meeting goals" initialValue="" />
                       <SubmitButton>Submit plan for Chair</SubmitButton>

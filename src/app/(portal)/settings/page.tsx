@@ -7,7 +7,9 @@ import { ConfirmSubmit } from "@/components/confirm-submit";
 import { AgendaItemBuilder } from "@/components/agenda-item-builder";
 import {
   createAllowedDomain,
+  createAgendaTemplate,
   createCommitteeRole,
+  deleteAgendaTemplate,
   deleteCommitteeRole,
   saveAgendaTemplate,
   toggleAllowedDomain,
@@ -23,28 +25,38 @@ export default async function SettingsPage({
     searchParams,
     createClient(),
   ]);
-  const [rolesResult, domainsResult, templateItemsResult, templateAssignmentsResult, peopleResult] =
-    await Promise.all([
+  const [
+    rolesResult,
+    domainsResult,
+    templatesResult,
+    templateItemsResult,
+    templateAssignmentsResult,
+    peopleResult,
+  ] = await Promise.all([
       supabase.from("committee_roles").select("*").order("sort_order"),
       supabase.from("allowed_email_domains").select("*").order("domain"),
+      supabase.from("agenda_templates").select("*").is("committee_id", null).order("name"),
       supabase.from("agenda_template_items").select("*").order("sort_order"),
       supabase.from("agenda_template_item_assignees").select("*"),
       supabase.from("profiles").select("id, full_name").eq("status", "active").order("full_name"),
     ]);
   const roles = rolesResult.data ?? [];
   const domains = domainsResult.data ?? [];
+  const templates = templatesResult.data ?? [];
   const templateItems = templateItemsResult.data ?? [];
   const templateAssignments = templateAssignmentsResult.data ?? [];
   const people = peopleResult.data ?? [];
   const isAdmin = profile.global_role === "admin";
-  const peopleById = new Map(people.map((person) => [person.id, person.full_name]));
-  const templateDraft = templateItems.map((item) => ({
-    id: item.id,
-    title: item.title,
-    assigneeIds: templateAssignments
-      .filter((assignment) => assignment.agenda_item_id === item.id)
-      .map((assignment) => assignment.profile_id),
-  }));
+  const templateDraftFor = (templateId: string) =>
+    templateItems
+      .filter((item) => item.template_id === templateId)
+      .map((item) => ({
+        id: item.id,
+        title: item.title,
+        assigneeIds: templateAssignments
+          .filter((assignment) => assignment.agenda_item_id === item.id)
+          .map((assignment) => assignment.profile_id),
+      }));
   return (
     <>
       <PageHeader
@@ -143,31 +155,63 @@ export default async function SettingsPage({
           )}
         </Card>
         <Card className="p-6 xl:col-span-2">
-          <h2 className="font-bold">Default agenda template</h2>
+          <h2 className="font-bold">Global agenda templates</h2>
           <p className="mt-1 text-xs text-slate-500">
-            New meeting plans begin with these ordered action items and personnel assignments.
+            Named templates are available from the meeting planner for every committee.
           </p>
-          {isAdmin ? (
-            <form action={saveAgendaTemplate} className="mt-4 space-y-4">
-              <AgendaItemBuilder initialItems={templateDraft} people={people} />
-              <SubmitButton className="mt-3">Save template</SubmitButton>
+          <div className="mt-5 space-y-3">
+            {templates.map((template) => (
+              <details
+                key={template.id}
+                className="rounded-xl border border-slate-200 bg-slate-50 p-4"
+              >
+                <summary className="cursor-pointer font-semibold text-slate-900">
+                  {template.name}
+                </summary>
+                <form action={saveAgendaTemplate} className="mt-4 space-y-4">
+                  <input type="hidden" name="id" value={template.id} />
+                  <label className="block text-xs font-semibold text-slate-600">
+                    Template name
+                    <input
+                      name="name"
+                      defaultValue={template.name}
+                      required
+                      className={`${inputClass} mt-1`}
+                    />
+                  </label>
+                  <AgendaItemBuilder initialItems={templateDraftFor(template.id)} people={people} />
+                  <SubmitButton>Save template</SubmitButton>
+                </form>
+                <form action={deleteAgendaTemplate} className="mt-2">
+                  <input type="hidden" name="id" value={template.id} />
+                  <ConfirmSubmit message={`Delete ${template.name}?`}>
+                    <Trash2 className="size-4" /> Delete template
+                  </ConfirmSubmit>
+                </form>
+              </details>
+            ))}
+            {!templates.length && (
+              <p className="rounded-xl border border-dashed border-slate-300 p-5 text-center text-sm text-slate-500">
+                No global agenda templates have been created.
+              </p>
+            )}
+          </div>
+          <details className="mt-5 rounded-xl border border-[#0077CA] bg-[#eef6fb] p-4">
+            <summary className="cursor-pointer font-semibold text-[#003C71]">
+              Add agenda template
+            </summary>
+            <form action={createAgendaTemplate} className="mt-4 space-y-4">
+              <label className="block text-xs font-semibold text-slate-600">
+                Template name
+                <input name="name" required className={`${inputClass} mt-1`} />
+              </label>
+              <AgendaItemBuilder
+                initialItems={[{ title: "Call to Order & Attendance Roll Call", assigneeIds: [] }]}
+                people={people}
+              />
+              <SubmitButton>Create template</SubmitButton>
             </form>
-          ) : (
-            <ol className="mt-4 space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-4">
-              {templateItems.map((item, index) => {
-                const names = templateAssignments
-                  .filter((assignment) => assignment.agenda_item_id === item.id)
-                  .map((assignment) => peopleById.get(assignment.profile_id))
-                  .filter(Boolean);
-                return (
-                  <li key={item.id} className="rounded-lg bg-white p-3 text-sm">
-                    {index + 1}. {item.title}
-                    {names.length ? ` (${names.join(", ")})` : ""}
-                  </li>
-                );
-              })}
-            </ol>
-          )}
+          </details>
         </Card>
       </div>
     </>

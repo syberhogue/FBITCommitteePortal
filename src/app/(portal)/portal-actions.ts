@@ -102,6 +102,68 @@ async function replaceMeetingAgendaItems(
   }
 }
 
+async function replaceAgendaTemplateItems(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  templateId: string,
+  items: AgendaDraftItem[],
+  path: string,
+) {
+  const { error: deleteError } = await supabase
+    .from("agenda_template_items")
+    .delete()
+    .eq("template_id", templateId);
+  check(deleteError, path);
+  const rows = items.map((item, index) => ({
+    id: crypto.randomUUID(),
+    template_id: templateId,
+    title: item.title,
+    sort_order: (index + 1) * 10,
+    assigneeIds: [...new Set(item.assigneeIds)],
+  }));
+  const { error: itemError } = await supabase.from("agenda_template_items").insert(
+    rows.map((row) => ({
+      id: row.id,
+      template_id: row.template_id,
+      title: row.title,
+      sort_order: row.sort_order,
+    })),
+  );
+  check(itemError, path);
+  const assignments = rows.flatMap((row) =>
+    row.assigneeIds.map((profileId) => ({ agenda_item_id: row.id, profile_id: profileId })),
+  );
+  if (assignments.length) {
+    const { error: assignmentError } = await supabase
+      .from("agenda_template_item_assignees")
+      .insert(assignments);
+    check(assignmentError, path);
+  }
+}
+
+async function createAgendaTemplateFromItems({
+  supabase,
+  name,
+  committeeId,
+  createdBy,
+  items,
+  path,
+}: {
+  supabase: Awaited<ReturnType<typeof createClient>>;
+  name: string;
+  committeeId: string | null;
+  createdBy: string;
+  items: AgendaDraftItem[];
+  path: string;
+}) {
+  const { data: template, error } = await supabase
+    .from("agenda_templates")
+    .insert({ name, committee_id: committeeId, created_by: createdBy })
+    .select("id")
+    .single();
+  check(error, path);
+  await replaceAgendaTemplateItems(supabase, template!.id, items, path);
+}
+
 function formObject(formData: FormData) {
   return Object.fromEntries(formData.entries());
 }
@@ -120,6 +182,12 @@ export async function createCommittee(formData: FormData) {
   const parsed = z
     .object({
       name: z.string().trim().min(2).max(200),
+      short_name: z
+        .string()
+        .trim()
+        .min(1)
+        .max(40)
+        .transform((value) => value.toUpperCase()),
       mandate: z.string().trim().max(10000),
       color: z.enum(committeeColors.map((color) => color.value)),
     })
@@ -162,6 +230,12 @@ export async function updateCommittee(formData: FormData) {
     .object({
       id: uuid,
       name: z.string().trim().min(2).max(200),
+      short_name: z
+        .string()
+        .trim()
+        .min(1)
+        .max(40)
+        .transform((value) => value.toUpperCase()),
       mandate: z.string().trim().max(10000),
     })
     .safeParse(formObject(formData));
@@ -169,7 +243,11 @@ export async function updateCommittee(formData: FormData) {
   const supabase = await createClient();
   const { error } = await supabase
     .from("committees")
-    .update({ name: parsed.data.name, mandate: parsed.data.mandate })
+    .update({
+      name: parsed.data.name,
+      short_name: parsed.data.short_name,
+      mandate: parsed.data.mandate,
+    })
     .eq("id", parsed.data.id);
   check(error, `/committees/${parsed.data.id}`);
   revalidatePath(`/committees/${parsed.data.id}`);
@@ -260,7 +338,11 @@ export async function createMeetingPlan(formData: FormData) {
 export async function saveMeetingPlan(formData: FormData) {
   const profile = await requireActiveProfile();
   const parsed = meetingPlanSchema
-    .extend({ id: uuid, intent: z.enum(["save", "finalize"]) })
+    .extend({
+      id: uuid,
+      intent: z.enum(["save", "finalize", "save_template"]),
+      template_name: z.string().trim().max(160).optional(),
+    })
     .parse(formObject(formData));
   const supabase = await createClient();
   const destination = `/committees/${parsed.committee_id}?tab=meetings&meetingView=${parsed.intent === "finalize" ? "upcoming" : "finalize"}`;
@@ -286,13 +368,27 @@ export async function saveMeetingPlan(formData: FormData) {
     .select("id")
     .single();
   check(error, destination);
+  if (parsed.intent === "save_template") {
+    if (!parsed.template_name || parsed.template_name.length < 2) {
+      fail(destination, "Template name must be at least 2 characters.");
+    }
+    await createAgendaTemplateFromItems({
+      supabase,
+      name: parsed.template_name,
+      committeeId: parsed.committee_id,
+      createdBy: profile.id,
+      items: parsed.agenda_items,
+      path: destination,
+    });
+  }
   revalidatePath(`/committees/${parsed.committee_id}`);
+  revalidatePath("/settings");
   revalidatePath("/dashboard");
   redirect(destination);
 }
 
 export async function updateMeeting(formData: FormData) {
-  await requireActiveProfile();
+  const profile = await requireActiveProfile();
   const parsed = z
     .object({
       id: uuid,
@@ -301,9 +397,12 @@ export async function updateMeeting(formData: FormData) {
       agenda_items: agendaItems,
       goals: richText(50000),
       minutes: richText(100000),
+      intent: z.enum(["save", "save_template"]).optional(),
+      template_name: z.string().trim().max(160).optional(),
     })
     .parse(formObject(formData));
   const supabase = await createClient();
+  const destination = `/committees/${parsed.committee_id}?tab=meetings&meetingView=in-progress`;
   const { error } = await supabase
     .from("meetings")
     .update({
@@ -315,14 +414,23 @@ export async function updateMeeting(formData: FormData) {
     .eq("id", parsed.id)
     .select("id, status")
     .single();
-  check(error, `/committees/${parsed.committee_id}?tab=meetings`);
-  await replaceMeetingAgendaItems(
-    supabase,
-    parsed.id,
-    parsed.agenda_items,
-    `/committees/${parsed.committee_id}?tab=meetings`,
-  );
+  check(error, destination);
+  await replaceMeetingAgendaItems(supabase, parsed.id, parsed.agenda_items, destination);
+  if (parsed.intent === "save_template") {
+    if (!parsed.template_name || parsed.template_name.length < 2) {
+      fail(destination, "Template name must be at least 2 characters.");
+    }
+    await createAgendaTemplateFromItems({
+      supabase,
+      name: parsed.template_name,
+      committeeId: parsed.committee_id,
+      createdBy: profile.id,
+      items: parsed.agenda_items,
+      path: destination,
+    });
+  }
   revalidatePath(`/committees/${parsed.committee_id}`);
+  revalidatePath("/settings");
   redirect(
     `/committees/${parsed.committee_id}?tab=meetings&meetingView=in-progress&focus=${parsed.id}#meeting-${parsed.id}`,
   );
@@ -708,7 +816,7 @@ export async function moveResource(formData: FormData) {
 }
 
 export async function createCommitteeRole(formData: FormData) {
-  await requireActiveProfile();
+  await requireAdmin();
   const parsed = z
     .object({
       name: z.string().trim().min(2).max(80),
@@ -726,7 +834,7 @@ export async function createCommitteeRole(formData: FormData) {
 }
 
 export async function deleteCommitteeRole(formData: FormData) {
-  await requireActiveProfile();
+  await requireAdmin();
   const parsed = z.object({ id: uuid }).parse(formObject(formData));
   const supabase = await createClient();
   const { error } = await supabase.from("committee_roles").delete().eq("id", parsed.id);
@@ -735,7 +843,7 @@ export async function deleteCommitteeRole(formData: FormData) {
 }
 
 export async function createAllowedDomain(formData: FormData) {
-  await requireActiveProfile();
+  await requireAdmin();
   const parsed = z
     .object({
       domain: z
@@ -752,7 +860,7 @@ export async function createAllowedDomain(formData: FormData) {
 }
 
 export async function toggleAllowedDomain(formData: FormData) {
-  await requireActiveProfile();
+  await requireAdmin();
   const parsed = z
     .object({ id: z.coerce.number().int().positive(), enabled: z.enum(["true", "false"]) })
     .parse(formObject(formData));
@@ -765,33 +873,59 @@ export async function toggleAllowedDomain(formData: FormData) {
   revalidatePath("/settings");
 }
 
+export async function createAgendaTemplate(formData: FormData) {
+  const profile = await requireAdmin();
+  const parsed = z
+    .object({
+      name: z.string().trim().min(2).max(160),
+      agenda_items: agendaItems,
+    })
+    .parse(formObject(formData));
+  const supabase = await createClient();
+  await createAgendaTemplateFromItems({
+    supabase,
+    name: parsed.name,
+    committeeId: null,
+    createdBy: profile.id,
+    items: parsed.agenda_items,
+    path: "/settings",
+  });
+  revalidatePath("/settings");
+}
+
 export async function saveAgendaTemplate(formData: FormData) {
   await requireAdmin();
-  const parsed = z.object({ agenda_items: agendaItems }).parse(formObject(formData));
+  const parsed = z
+    .object({
+      id: uuid,
+      name: z.string().trim().min(2).max(160),
+      agenda_items: agendaItems,
+    })
+    .parse(formObject(formData));
   const supabase = await createClient();
-  const { error: deleteError } = await supabase
-    .from("agenda_template_items")
+  const { error } = await supabase
+    .from("agenda_templates")
+    .update({ name: parsed.name })
+    .eq("id", parsed.id)
+    .is("committee_id", null)
+    .select("id")
+    .single();
+  check(error, "/settings");
+  await replaceAgendaTemplateItems(supabase, parsed.id, parsed.agenda_items, "/settings");
+  revalidatePath("/settings");
+}
+
+export async function deleteAgendaTemplate(formData: FormData) {
+  await requireAdmin();
+  const parsed = z.object({ id: uuid }).parse(formObject(formData));
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("agenda_templates")
     .delete()
-    .gte("sort_order", 0);
-  check(deleteError, "/settings");
-  const rows = parsed.agenda_items.map((item, index) => ({
-    id: crypto.randomUUID(),
-    title: item.title,
-    sort_order: (index + 1) * 10,
-    assigneeIds: [...new Set(item.assigneeIds)],
-  }));
-  const { error: itemError } = await supabase
-    .from("agenda_template_items")
-    .insert(rows.map((row) => ({ id: row.id, title: row.title, sort_order: row.sort_order })));
-  check(itemError, "/settings");
-  const assignments = rows.flatMap((row) =>
-    row.assigneeIds.map((profileId) => ({ agenda_item_id: row.id, profile_id: profileId })),
-  );
-  if (assignments.length) {
-    const { error: assignmentError } = await supabase
-      .from("agenda_template_item_assignees")
-      .insert(assignments);
-    check(assignmentError, "/settings");
-  }
+    .eq("id", parsed.id)
+    .is("committee_id", null)
+    .select("id")
+    .single();
+  check(error, "/settings");
   revalidatePath("/settings");
 }

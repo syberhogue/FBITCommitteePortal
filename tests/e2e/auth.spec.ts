@@ -97,7 +97,7 @@ test("meeting plan moves through Chair approval, attendance, locking, unlock, an
   await signIn(page, "member@fbit.test");
   await expect(page.getByRole("link", { name: "Settings" })).toHaveCount(0);
   await page.goto("/settings");
-  await expect(page).toHaveURL(/\/dashboard\?error=Settings/);
+  await expect(page).toHaveURL(/\/dashboard\?error=Administrator/);
   const scheduledMeetings = page
     .getByRole("heading", { name: "Your scheduled meetings" })
     .locator("xpath=..");

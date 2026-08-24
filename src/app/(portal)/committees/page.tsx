@@ -21,7 +21,7 @@ export default async function CommitteesPage({
   const status = params.status === "archived" ? "archived" : "active";
   let query = supabase
     .from("committees")
-    .select("id, name, mandate, status, updated_at, color")
+    .select("id, name, short_name, mandate, status, updated_at, color")
     .eq("status", status)
     .order("name");
   if (params.q?.trim()) query = query.ilike("name", `%${params.q.trim()}%`);
@@ -111,6 +111,11 @@ export default async function CommitteesPage({
                     >
                       {committee.name}
                     </h2>
+                    {committee.short_name && (
+                      <p className="mt-1 text-xs font-bold uppercase text-slate-400">
+                        {committee.short_name}
+                      </p>
+                    )}
                     <p className="mt-2 line-clamp-3 text-sm text-slate-500">
                       {committee.mandate || "No mandate recorded."}
                     </p>
@@ -158,6 +163,16 @@ export default async function CommitteesPage({
               <label className="block text-xs font-semibold text-slate-600">
                 Name
                 <input name="name" required maxLength={200} className={`${inputClass} mt-1`} />
+              </label>
+              <label className="block text-xs font-semibold text-slate-600">
+                Acronym
+                <input
+                  name="short_name"
+                  required
+                  maxLength={40}
+                  className={`${inputClass} mt-1 uppercase`}
+                  placeholder="FBIT"
+                />
               </label>
               <label className="block text-xs font-semibold text-slate-600">
                 Mandate
